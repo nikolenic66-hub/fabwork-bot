@@ -36,6 +36,7 @@ from pricing.price_list import (
     get_balcony_glazing_package,
     GLASS_PRICE_PER_M2,
     get_door_price,
+    BALCONY_DOOR_MOSQUITO_NET,
 )
 from states import CalculationStates
 from storage.db import Database
@@ -358,6 +359,8 @@ def _extras_summary(data: dict) -> str:
         parts.append(f"отлив {data['ebb_width_mm']} мм")
     if data.get("mosquito"):
         parts.append("москитная сетка")
+    if data.get("construction_type") == "balcony" and data.get("door_mosquito"):
+        parts.append("дверная москитная сетка 5 000 ₽")
     if data.get("delivery") == "city":
         parts.append("доставка по городу")
     elif data.get("delivery") == "outside":
@@ -390,6 +393,7 @@ def _defaults_balcony() -> dict:
         "construction_type": "balcony", "profile": "58", "glass": "32",
         "door_type": "single", "door_sash": "T", "door_threshold": "frame",
         "door_lock": "single", "door_fittings": "push",
+        "door_opening_mode": "tilt_turn", "door_mosquito": False,
         "door_width_mm": 700, "door_height_mm": 2100,
         "window_width_mm": 800, "window_height_mm": 1400,
         "width_mm": 800, "height_mm": 1400,
@@ -460,6 +464,8 @@ def _screen_builder(data: dict) -> tuple[str, list[tuple[str, str]]]:
             f"🪟 Окно: <b>{data.get('window_width_mm')} × {data.get('window_height_mm')} мм</b>\n"
             f"🚪 Дверь: <b>{data.get('door_width_mm')} × {data.get('door_height_mm')} мм</b>\n"
             f"🪟 Открывание окна: <b>{_friendly_config(data.get('window_configuration'))[0]}</b>\n"
+            f"🚪 Открывание двери: <b>{'поворотно-откидная' if data.get('door_opening_mode') == 'tilt_turn' else 'поворотная'}</b>\n"
+            f"🚪 Дверная москитная сетка: <b>{'да — 5 000 ₽' if data.get('door_mosquito') else 'нет'}</b>\n"
             f"🧱 Профиль: <b>{_profile_label(data.get('profile'))}</b> · 🔲 <b>{_label_glass(data.get('glass'))}</b>\n"
             f"⚙️ Дополнительно: {escape(_extras_summary(data))}\n\n"
             f"💰 <b>{live}</b> <i>ориентировочно</i>"
@@ -616,8 +622,12 @@ async def _render_screen(target, state: FSMContext, screen: str, push: bool = Tr
             rows += [(v, f"b:set:dtype:{k}") for k, v in FRIENDLY_DOOR_UI.items()]
             rows += [(v, f"b:set:dsash:{k}") for k, v in FRIENDLY_SASH_UI.items()]
         else:
-            # В балконном блоке сейчас тарифицируем одностворчатую стандартную дверь;
-            # двустворчатая/Z-створка не имеют отдельной подтверждённой цены.
+            rows += [
+                ("Поворотная дверь", "b:set:baldoor:turn"),
+                ("Поворотно-откидная дверь", "b:set:baldoor:tilt_turn"),
+                (f"Дверная москитная сетка — {'✅ 5 000 ₽' if data.get('door_mosquito') else '5 000 ₽'}", "b:set:baldoor:mos"),
+                ("Без дверной москитной сетки", "b:set:baldoor:nomos"),
+            ]
             rows.append(("Одностворчатая дверь", "b:set:dtype:single"))
             rows.append(("Стандартная дверь", "b:set:dsash:T"))
         rows += [(v, f"b:set:dthr:{k}") for k, v in FRIENDLY_THRESHOLD_UI.items()]
@@ -634,7 +644,12 @@ async def _render_screen(target, state: FSMContext, screen: str, push: bool = Tr
         rows.append(("⬅️ Назад", "b:back"))
         return await _edit_or_answer(target, "📦 <b>Типовой балконный блок</b>", kb(rows, cols=1), state, user_id, "bal_preset", push)
     if screen == "bal_win":
-        rows = [("Глухое окно", "b:set:balcfg:fixed"), ("Открывается + проветривание", "b:set:balcfg:tilt_turn"), ("⬅️ Назад", "b:back")]
+        rows = [
+            ("Глухое окно", "b:set:balcfg:fixed"),
+            ("Открывается + проветривание", "b:set:balcfg:tilt_turn"),
+            ("Глухое + ПО (2 створки)", "b:set:balcfg:fixed_tilt_turn"),
+            ("⬅️ Назад", "b:back"),
+        ]
         return await _edit_or_answer(target, "🪟 <b>Окно в балконном блоке</b>", kb(rows, cols=1), state, user_id, "bal_win", push)
     if screen == "scheme":
         rows = [(info["label"], f"b:set:scheme:{key}") for key, info in NONSTANDARD_SCHEMES.items()]
@@ -1117,6 +1132,19 @@ async def set_dlock(q: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data.startswith("b:set:dfit:"))
 async def set_dfit(q: CallbackQuery, state: FSMContext):
     await q.answer(); await state.update_data(door_fittings=q.data.rsplit(":", 1)[1]); await show_builder(q, state, reset_history=True)
+
+
+@router.callback_query(F.data.startswith("b:set:baldoor:"))
+async def set_balcony_door_option(q: CallbackQuery, state: FSMContext):
+    await q.answer()
+    value = q.data.rsplit(":", 1)[1]
+    if value in {"turn", "tilt_turn"}:
+        await state.update_data(door_opening_mode=value)
+    elif value == "mos":
+        await state.update_data(door_mosquito=True)
+    elif value == "nomos":
+        await state.update_data(door_mosquito=False)
+    await _render_screen(q, state, "door", push=False)
 
 
 @router.callback_query(F.data == "b:edit:bal_size")

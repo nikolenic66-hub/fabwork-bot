@@ -39,6 +39,9 @@ def test_builder_has_working_back_and_balcony_custom_size():
     assert '800, 900' not in TEXT  # custom size is entered by the customer, not hard-coded
 
 
-def test_balcony_door_ui_does_not_offer_unpriced_door_variants():
+def test_balcony_door_ui_has_opening_modes_and_fixed_mosquito_net():
     text = Path(__file__).parents[1].joinpath("handlers/calculation.py").read_text(encoding="utf-8")
-    assert "двустворчатая/Z-створка не имеют отдельной подтверждённой цены" in text
+    assert '"Поворотная дверь", "b:set:baldoor:turn"' in text
+    assert '"Поворотно-откидная дверь", "b:set:baldoor:tilt_turn"' in text
+    assert 'b:set:baldoor:mos' in text
+    assert '5 000 ₽' in text

@@ -15,7 +15,7 @@ from pricing.price_list import (
     SERVICE_PRICES,
     money,
     service_adjust,
-    service_glass32,
+    service_glass_replace,
     service_install_visit,
     service_measure,
     service_mosquito_measure,
@@ -77,8 +77,9 @@ def menu_text() -> str:
         "🔧 <b>Сервис и ремонт</b>\n\n"
         "📏 Замер окон, дверей и балконных блоков — <b>бесплатно</b>\n"
         f"🦟 Замер москитных сеток — <b>{fmt(SERVICE_PRICES['special_measure'])}</b>\n"
-        f"🛠 Монтаж (выезд) — <b>{fmt(SERVICE_PRICES['install_visit'])}</b>\n"
-        f"🔲 Замена СП 32 — <b>{fmt(SERVICE_PRICES['glass32_replace'])}</b> / шт\n"
+        f"🛠 Монтаж — <b>{fmt(SERVICE_PRICES['install_visit'])}</b>\n"
+        f"🔲 Замена стеклопакета: 24 мм — <b>{fmt(SERVICE_PRICES['glass24_replace'])}</b> / шт; 32 мм — <b>{fmt(SERVICE_PRICES['glass32_replace'])}</b> / шт\n"
+        f"📏 Замер стеклопакета — <b>{fmt(SERVICE_PRICES['special_measure'])}</b>\n"
         f"⚙️ Регулировка: выезд <b>{fmt(SERVICE_PRICES['adjust_visit'])}</b>\n"
         f"    окно <b>{fmt(SERVICE_PRICES['adjust_window'])}</b> · дверь <b>{fmt(SERVICE_PRICES['adjust_door'])}</b>\n"
         f"🧵 Уплотнитель: выезд <b>{fmt(SERVICE_PRICES['seal_visit'])}</b>\n"
@@ -100,7 +101,7 @@ async def svc_menu(q: CallbackQuery, state: FSMContext):
             ("📏 Бесплатный замер", "svc:measure"),
             ("🦟 Замер москитных сеток — 500 ₽", "svc:mosquito_measure"),
             ("🛠 Монтаж 1000 ₽", "svc:install"),
-            ("🔲 Замена СП 32", "svc:glass"),
+            ("🔲 Замена стеклопакета", "svc:glass"),
             ("⚙️ Регулировка", "svc:adjust"),
             ("🧵 Уплотнитель", "svc:seal"),
             ("🏠 Меню", "nav:home"),
@@ -140,33 +141,36 @@ async def svc_install(q: CallbackQuery, state: FSMContext):
 async def svc_glass(q: CallbackQuery, state: FSMContext):
     await q.answer()
     await state.set_state(ServiceStates.GLASS_QTY)
-    await state.update_data(svc_glass_qty=1, svc_glass_measure=False, svc_glass_install=False)
+    await state.update_data(svc_glass_type="32", svc_glass_qty=1, svc_glass_measure=True, svc_glass_install=True)
     await _glass_screen(q, state)
 
 
 async def _glass_screen(q: CallbackQuery, state: FSMContext):
     data = await state.get_data()
+    glass = data.get("svc_glass_type") or "32"
     qty = int(data.get("svc_glass_qty") or 1)
     wm = bool(data.get("svc_glass_measure"))
     wi = bool(data.get("svc_glass_install"))
-    total, items = service_glass32(qty, wm, wi)
+    total, items = service_glass_replace(glass, qty, wm, wi)
     lines = "\n".join(f"• {n}: <b>{fmt(p)}</b>" for n, p in items)
     await _render_service(
         q,
         state,
-        f"🔲 <b>Замена стеклопакета 32 мм</b>\n\n{lines}\n\n💰 <b>{fmt(total)}</b>",
+        f"🔲 <b>Замена стеклопакета {glass} мм</b>\n\n{lines}\n\n💰 <b>{fmt(total)}</b>",
         kb([
+            ("СП 24 мм" + (" ✅" if glass == "24" else ""), "svc:g:type:24"),
+            ("СП 32 мм" + (" ✅" if glass == "32" else ""), "svc:g:type:32"),
             ("− шт", "svc:g:-"),
             (f"{qty} шт", "svc:g:qty"),
             ("+ шт", "svc:g:+"),
-            ("Замер " + ("✅" if wm else "☐"), "svc:g:m"),
-            ("Монтаж " + ("✅" if wi else "☐"), "svc:g:i"),
+            ("Замер 500 ₽" + (" ✅" if wm else ""), "svc:g:m"),
+            ("Монтаж 1 000 ₽" + (" ✅" if wi else ""), "svc:g:i"),
             ("✅ Заявка", "svc:order"),
             *nav(),
         ]),
     )
     await state.update_data(
-        svc_title="Замена СП 32",
+        svc_title=f"Замена СП {glass}",
         svc_total=str(total),
         svc_items=[(n, str(p)) for n, p in items],
     )
@@ -178,7 +182,9 @@ async def svc_g_toggle(q: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     qty = int(data.get("svc_glass_qty") or 1)
     act = q.data.rsplit(":", 1)[1]
-    if act == "+":
+    if act in {"24", "32"} and q.data.startswith("svc:g:type:"):
+        await state.update_data(svc_glass_type=act)
+    elif act == "+":
         qty = min(qty + 1, 20)
     elif act == "-":
         qty = max(qty - 1, 1)

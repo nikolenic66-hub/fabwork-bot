@@ -12,6 +12,7 @@ from pricing.price_list import (
     validate_size,
     service_adjust,
     service_glass32,
+    service_glass_replace,
     service_measure,
     service_mosquito_measure,
     service_seal,
@@ -30,7 +31,7 @@ def base(**kw):
 
 def test_window_price():
     e = calculator.calculate(base(glass="32", opening="tilt_turn", extras={"sash_configuration": "tilt_turn"}))
-    assert e.subtotal == Decimal("14320.00")
+    assert e.subtotal == Decimal("11960.00")
 
 
 def test_installation_exactly_once():
@@ -53,7 +54,7 @@ def test_ebb_is_per_meter():
 
 def test_i_coating():
     e = calculator.calculate(base(glass="32_i", opening="tilt_turn", extras={"sash_configuration": "tilt_turn"}))
-    assert e.subtotal == Decimal("16320.00")
+    assert e.subtotal == Decimal("13960.00")
 
 
 def test_door():
@@ -73,7 +74,7 @@ def test_balcony_block_58_near_29k():
         sill2_type="pvc", sill2_depth_mm=300, sill2_length_mm=700,
     ))
     # materials should land total near 29000
-    assert Decimal("36000") <= e.total <= Decimal("42000")
+    assert Decimal("30000") <= e.total <= Decimal("35000")
     names = [i.name for i in e.items]
     assert sum(1 for n in names if "Подоконник" in n) == 2
 
@@ -89,7 +90,7 @@ def test_balcony_block_70_near_40k():
         sill_type="pvc", sill_depth_mm=300, sill_length_mm=600,
         sill2_type="pvc", sill2_depth_mm=300, sill2_length_mm=700,
     ))
-    assert Decimal("42000") <= e.total <= Decimal("48000")
+    assert Decimal("35000") <= e.total <= Decimal("41000")
 
 
 def test_p_shape_58():
@@ -105,7 +106,15 @@ def test_frame_58():
     e = calculator.calculate(CalculationConfig(
         construction_type="balcony_glazing", profile="58", scheme_key="frame",
     ))
-    assert e.subtotal == Decimal("50000.00")
+    assert e.subtotal == Decimal("80000.00")
+
+
+def test_p_frame_58_is_separate_from_p_shape_lodge():
+    from pricing.price_list import get_balcony_glazing_package
+    low, high = get_balcony_glazing_package("p_frame", "58")
+    lodge_low, lodge_high = get_balcony_glazing_package("p_shape", "58")
+    assert (low, high) == (Decimal("120000.00"), Decimal("140000.00"))
+    assert (lodge_low, lodge_high) == (Decimal("65000.00"), Decimal("80000.00"))
 
 
 def test_validate_sash():
@@ -120,8 +129,8 @@ def test_triple_window_g_po_g():
         extras={"sash_configuration": "fixed_tilt_turn_fixed"},
         glass="32",
     ))
-    assert e.subtotal == Decimal("27640.00")
-    assert e.total == Decimal("32338.80")
+    assert e.subtotal == Decimal("23120.00")
+    assert e.total == Decimal("27050.40")
 
 
 def test_triple_window_po_g_po():
@@ -131,7 +140,7 @@ def test_triple_window_po_g_po():
         extras={"sash_configuration": "tilt_turn_fixed_tilt_turn"},
         glass="32",
     ))
-    assert e.subtotal == Decimal("32080.00")
+    assert e.subtotal == Decimal("26840.00")
 
 
 def test_glass_unit_prices_and_i_surcharge():
@@ -139,8 +148,8 @@ def test_glass_unit_prices_and_i_surcharge():
     warm = calculator.calculate(CalculationConfig(construction_type="glass_unit", width_mm=800, height_mm=1400, glass="32"))
     i = calculator.calculate(CalculationConfig(construction_type="glass_unit", width_mm=800, height_mm=1400, glass="32_i"))
     assert plain.total == Decimal("6160.00")
-    assert warm.total == Decimal("7840.00")
-    assert i.total == Decimal("9840.00")
+    assert warm.total == Decimal("8400.00")
+    assert i.total == Decimal("10400.00")
     assert i.installation == Decimal("0.00")
 
 
@@ -151,27 +160,19 @@ def test_i_surcharge_is_exactly_2000_and_not_in_installation_base():
     assert i.installation == plain.installation
 
 
-def test_p_balcony_frame_returns_orientir_range():
-    from pricing.price_list import get_balcony_glazing_package, BALCONY_GLAZING_TYPES
-    label = BALCONY_GLAZING_TYPES["p_balcony_frame"]["label"]
-    assert label.startswith("П-образная балконная рама от пола до потолка")
-    assert "высота ≈ 2,5 м" in label
-    low, high = get_balcony_glazing_package("p_balcony_frame", "58")
-    assert low == Decimal("65000.00")
-    assert high == Decimal("80000.00")
-
-
 def test_balcony_glazing_returns_orientir_range():
     from pricing.price_list import get_balcony_glazing_package
-    low, high = get_balcony_glazing_package("p_shape", "58")
-    assert low == Decimal("65000.00")
-    assert high == Decimal("80000.00")
+    low, high = get_balcony_glazing_package("p_frame", "58")
+    assert low == Decimal("120000.00")
+    assert high == Decimal("140000.00")
 
 
 def test_service_prices():
     assert service_measure() == Decimal("0.00")
     total, items = service_glass32(1, True, True)
-    assert total == Decimal("9000.00")  # 7500+500+1000
+    assert total == Decimal("8500.00")  # 7000+500+1000
+    total24, items24 = service_glass_replace("24", 1, True, True)
+    assert total24 == Decimal("7000.00")  # 5500+500+1000
     mosquito_total, mosquito_items = service_mosquito_measure()
     assert mosquito_total == Decimal("500.00")
     assert mosquito_items == [("Замер москитных сеток", Decimal("500.00"))]

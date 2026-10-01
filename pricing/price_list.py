@@ -77,19 +77,19 @@ BALCONY_GLAZING_TYPES = {
         "scheme": "┌─────────────────┐\n│    рама балкона │\n└─────────────────┘",
     },
     "loggia": {
-        "label": "Прямая лоджия, фасад ≈ 3,0 м",
+        "label": "Прямая лоджия: фасад ≈ 3,0 м, высота ≈ 2,5 м",
         "scheme": "┌─────────────────┐\n│   лоджия фронт  │\n└─────────────────┘",
     },
     "p_shape": {
-        "label": "П-образная лоджия: фасад ≈ 3,0 м + бока ≈ 0,95 м",
+        "label": "П-образная лоджия: фасад ≈ 3,0 м + бока ≈ 0,95 м, высота ≈ 2,5 м",
         "scheme": "┌──┐         ┌──┐\n│  ├─────────┤  │\n│  │         │  │\n└──┘         └──┘",
     },
-    "p_balcony_frame": {
+    "p_frame": {
         "label": "П-образная балконная рама от пола до потолка: фасад ≈ 3,0 м + два бока ≈ 0,95 м, высота ≈ 2,5 м",
-        "scheme": "┌──┐         ┌──┐\n│  │         │  │\n│  ├─────────┤  │\n│  │         │  │\n│  │         │  │\n└──┘         └──┘",
+        "scheme": "┌──┐         ┌──┐\n│  ├─────────┤  │\n│  │         │  │\n└──┘         └──┘",
     },
     "g_shape": {
-        "label": "Г-образная лоджия: фасад ≈ 3,0 м + бок ≈ 0,95 м",
+        "label": "Г-образная лоджия: фасад ≈ 3,0 м + бок ≈ 0,95 м, высота ≈ 2,5 м",
         "scheme": "┌──┐\n│  ├─────────┐\n│  │         │\n└──┘         │",
     },
 }
@@ -142,37 +142,39 @@ WINDOW_CONSTRUCTION_BASE = {
 
 GLASS_PRICE_PER_M2 = {
     "24": Decimal("5500"),
-    "32": Decimal("7000"),
+    "32": Decimal("7500"),
 }
 I_GLASS_SURCHARGE_PER_CONSTRUCTION = Decimal("2000")
 
 # Балконный блок: база профиля/фурнитуры без стеклопакета; СП добавляется по площади.
 BALCONY_BLOCK_BASE = {
+    # Снижено примерно на 7 000 ₽ по базе конструкции относительно прежнего прайса.
     "58": {
-        "door": Decimal("8500"),
-        "window_fixed": Decimal("4000"),
-        "window_tilt_turn": Decimal("5000"),
-        "connector": Decimal("1000"),
+        "door": Decimal("4500"),
+        "window_fixed": Decimal("2000"),
+        "window_tilt_turn": Decimal("3000"),
+        "connector": Decimal("500"),
     },
     "70": {
-        "door": Decimal("12000"),
-        "window_fixed": Decimal("5500"),
-        "window_tilt_turn": Decimal("6500"),
-        "connector": Decimal("1200"),
+        "door": Decimal("8000"),
+        "window_fixed": Decimal("3500"),
+        "window_tilt_turn": Decimal("4500"),
+        "connector": Decimal("700"),
     },
 }
 
 # Остекление балкона/лоджии — только ориентир, без попытки выдать его за точную смету.
 BALCONY_GLAZING_PACKAGE = {
     # (от, до), без попытки заменить замер специалиста.
-    "frame": {"58": (Decimal("45000"), Decimal("55000")), "70": (Decimal("60000"), Decimal("75000"))},
+    # Для 70 мм задан ориентир выше 58 мм; точные границы пользователь не указал.
+    "frame": {"58": (Decimal("75000"), Decimal("85000")), "70": (Decimal("95000"), Decimal("110000"))},
     "loggia": {"58": (Decimal("45000"), Decimal("55000")), "70": (Decimal("60000"), Decimal("75000"))},
     "p_shape": {"58": (Decimal("65000"), Decimal("80000")), "70": (Decimal("85000"), Decimal("105000"))},
-    "p_balcony_frame": {"58": (Decimal("65000"), Decimal("80000")), "70": (Decimal("85000"), Decimal("105000"))},
+    "p_frame": {"58": (Decimal("120000"), Decimal("140000")), "70": (Decimal("150000"), Decimal("175000"))},
     "g_shape": {"58": (Decimal("55000"), Decimal("65000")), "70": (Decimal("72000"), Decimal("85000"))},
 }
 
-GLASS_UNIT_PRICE_PER_M2 = {"24": Decimal("5500"), "32": Decimal("7000")}
+GLASS_UNIT_PRICE_PER_M2 = {"24": Decimal("5500"), "32": Decimal("7500")}
 
 
 # Двери ПВХ — ориентировочная клиентская база.
@@ -213,7 +215,8 @@ SERVICE_PRICES = {
     # Обычный замер изделия — бесплатно. 500 ₽ только для специальных замеров.
     "special_measure": Decimal("500.00"),   # замер москитных сеток / стеклопакетов
     "install_visit": Decimal("1000.00"),    # выезд на монтаж / монтажные работы (минимум)
-    "glass32_replace": Decimal("7500.00"),  # замена стеклопакета 32 мм (1 шт)
+    "glass24_replace": Decimal("5500.00"),  # замена стеклопакета 24 мм (1 шт)
+    "glass32_replace": Decimal("7000.00"),  # замена стеклопакета 32 мм (1 шт)
     "adjust_visit": Decimal("1000.00"),     # выезд мастера на регулировку
     "adjust_window": Decimal("300.00"),     # регулировка 1 окна
     "adjust_door": Decimal("500.00"),       # регулировка 1 двери
@@ -256,7 +259,9 @@ def get_window_price(sash_count: int, configuration: str, profile: str, glass: s
     if not width_mm or not height_mm:
         raise ValueError("Для расчёта окна нужны размеры")
     area = Decimal(width_mm * height_mm) / Decimal("1000000")
-    price = construction + area * GLASS_PRICE_PER_M2[base_glass]
+    # Ориентировочная итоговая стоимость окна снижена примерно на 20%.
+    # Отдельный стеклопакет по-прежнему имеет собственный фиксированный прайс.
+    price = money((construction + area * GLASS_PRICE_PER_M2[base_glass]) * Decimal("0.80"))
     return money(price)
 
 
@@ -291,6 +296,9 @@ def get_door_price(opening: str, sash: str, threshold: str, lock: str, fittings:
     # Для двери стеклопакет тоже считается по площади полотна.
     # Размеры двери передаются отдельной функцией в калькуляторе.
     return money(price)
+
+
+BALCONY_DOOR_MOSQUITO_NET = Decimal("5000.00")
 
 
 def get_balcony_block_parts(profile: str, window_cfg: str = "tilt_turn") -> dict[str, Decimal]:
@@ -359,14 +367,21 @@ def service_install_visit() -> Decimal:
     return money(SERVICE_PRICES["install_visit"])
 
 
-def service_glass32(qty: int = 1, with_measure: bool = False, with_install: bool = False) -> tuple[Decimal, list[tuple[str, Decimal]]]:
-    items = [("Замена стеклопакета 32 мм ×%s" % qty, money(SERVICE_PRICES["glass32_replace"] * qty))]
+def service_glass_replace(glass: str = "32", qty: int = 1, with_measure: bool = True, with_install: bool = True) -> tuple[Decimal, list[tuple[str, Decimal]]]:
+    if glass not in {"24", "32"}:
+        raise ValueError("Доступны стеклопакеты 24 и 32 мм")
+    price_key = "glass24_replace" if glass == "24" else "glass32_replace"
+    items = [(f"Замена стеклопакета {glass} мм ×{qty}", money(SERVICE_PRICES[price_key] * qty))]
     if with_measure:
         items.append(("Замер стеклопакетов", service_special_measure()))
     if with_install:
-        items.append(("Монтаж / выезд", SERVICE_PRICES["install_visit"]))
+        items.append(("Монтаж", SERVICE_PRICES["install_visit"]))
     total = money(sum((p for _, p in items), Decimal("0")))
     return total, items
+
+
+def service_glass32(qty: int = 1, with_measure: bool = False, with_install: bool = False) -> tuple[Decimal, list[tuple[str, Decimal]]]:
+    return service_glass_replace("32", qty, with_measure, with_install)
 
 
 def service_adjust(windows: int = 0, doors: int = 0) -> tuple[Decimal, list[tuple[str, Decimal]]]:

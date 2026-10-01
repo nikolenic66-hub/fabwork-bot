@@ -38,6 +38,8 @@ class CalculationConfig:
     door_threshold: str | None = None
     door_lock: str | None = None
     door_fittings: str | None = None
+    door_opening_mode: str | None = None  # turn | tilt_turn, для двери балконного блока
+    door_mosquito: bool = False
     opening_direction: str | None = None  # left | right
     sill_type: str | None = None
     sill_depth_mm: int | None = None

@@ -64,7 +64,7 @@ def test_mosquito_measurement_is_500_in_calculation_logic():
 def test_special_measurement_fee_is_500():
     from pricing.price_list import service_mosquito_measure, service_glass32
     assert service_mosquito_measure()[0] == Decimal("500.00")
-    assert service_glass32(1, True, False)[0] == Decimal("8000.00")
+    assert service_glass32(1, True, False)[0] == Decimal("7500.00")
 
 
 def test_history_marks_free_measurement_as_free():
@@ -95,3 +95,34 @@ def test_service_duplicate_is_not_resent_to_manager_in_source():
     text = Path(__file__).parents[1].joinpath("handlers/services.py").read_text(encoding="utf-8")
     assert "is_new_request = False" in text
     assert "if cid and is_new_request:" in text
+
+
+def test_balcony_block_has_two_sash_fixed_plus_tilt_turn_option():
+    text = Path(__file__).parents[1].joinpath("handlers/calculation.py").read_text(encoding="utf-8")
+    assert '"Глухое + ПО (2 створки)", "b:set:balcfg:fixed_tilt_turn"' in text
+
+
+def test_balcony_door_mosquito_net_is_fixed_5000():
+    from calculator import calculator
+    e = calculator.calculate(CalculationConfig(
+        construction_type="balcony", profile="58", glass="32",
+        door_type="single", door_sash="T", door_threshold="frame",
+        door_lock="single", door_fittings="push",
+        door_width_mm=700, door_height_mm=2100,
+        window_width_mm=800, window_height_mm=900,
+        window_configuration="fixed_tilt_turn",
+        door_opening_mode="turn", door_mosquito=True,
+    ))
+    assert any(i.name == "Дверная москитная сетка" and i.price == Decimal("5000.00") for i in e.items)
+
+
+def test_service_glass_has_24_and_32_choices():
+    text = Path(__file__).parents[1].joinpath("handlers/services.py").read_text(encoding="utf-8")
+    assert 'svc:g:type:24' in text
+    assert 'svc:g:type:32' in text
+
+
+def test_p_frame_is_separate_customer_option():
+    from pricing.price_list import BALCONY_GLAZING_TYPES
+    assert "p_frame" in BALCONY_GLAZING_TYPES
+    assert "П-образная балконная рама от пола до потолка" in BALCONY_GLAZING_TYPES["p_frame"]["label"]

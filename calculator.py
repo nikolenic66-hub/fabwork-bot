@@ -25,6 +25,7 @@ from pricing.price_list import (
     get_ebb_price,
     get_sill_price,
     get_window_price,
+    BALCONY_DOOR_MOSQUITO_NET,
     GLASS_UNIT_PRICE_PER_M2,
     GLASS_PRICE_PER_M2,
     I_GLASS_SURCHARGE_PER_CONSTRUCTION,
@@ -223,11 +224,12 @@ class Calculator:
             raise PricingError("Для балконного блока доступны СП 24 и 32 мм")
         glass_area = Decimal(door_w * door_h + win_w * win_h) / Decimal("1000000")
         glass_price = money(glass_area * GLASS_PRICE_PER_M2[glass_base])
+        door_mode = getattr(c, "door_opening_mode", None) or "tilt_turn"
+        door_mode_label = "поворотно-откидная" if door_mode == "tilt_turn" else "поворотная"
         items = [
             EstimateItem(
                 f"Дверь блока {door_w}×{door_h} мм, {profile} мм, "
-                f"{FRIENDLY_DOOR.get(opening, opening)}, {FRIENDLY_SASH.get(sash, sash)}, "
-                f"{FRIENDLY_GLASS.get(glass, glass)}",
+                f"{door_mode_label}, {FRIENDLY_GLASS.get(glass, glass)}",
                 door_price,
             ),
             EstimateItem(
@@ -259,6 +261,8 @@ class Calculator:
             except ValueError as e:
                 raise PricingError(str(e)) from e
             items.append(EstimateItem(f"Подоконник внутренний (дверь) {sill2_depth}×{sill2_len} мм", p2))
+        if getattr(c, "door_mosquito", False):
+            items.append(EstimateItem("Дверная москитная сетка", BALCONY_DOOR_MOSQUITO_NET))
         items.extend(self._mosquito_items(c))
         return items
 
