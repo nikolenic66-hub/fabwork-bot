@@ -77,8 +77,8 @@ def menu_text() -> str:
         "🔧 <b>Сервис и ремонт</b>\n\n"
         "📏 Замер окон, дверей и балконных блоков — <b>бесплатно</b>\n"
         f"🦟 Замер москитных сеток — <b>{fmt(SERVICE_PRICES['special_measure'])}</b>\n"
-        f"🛠 Монтаж — <b>{fmt(SERVICE_PRICES['install_visit'])}</b>\n"
-        f"🔲 Замена стеклопакета: 24 мм — <b>{fmt(SERVICE_PRICES['glass24_replace'])}</b> / шт; 32 мм — <b>{fmt(SERVICE_PRICES['glass32_replace'])}</b> / шт\n"
+        f"🛠 Монтаж стеклопакета — <b>{fmt(SERVICE_PRICES['install_visit'])}</b>\n"
+        f"🔲 Замена стеклопакета: 24 мм — <b>{fmt(SERVICE_PRICES['glass24_replace'])}</b> / м²; 32 мм — <b>{fmt(SERVICE_PRICES['glass32_replace'])}</b> / м²\n"
         f"📏 Замер стеклопакета — <b>{fmt(SERVICE_PRICES['special_measure'])}</b>\n"
         f"⚙️ Регулировка: выезд <b>{fmt(SERVICE_PRICES['adjust_visit'])}</b>\n"
         f"    окно <b>{fmt(SERVICE_PRICES['adjust_window'])}</b> · дверь <b>{fmt(SERVICE_PRICES['adjust_door'])}</b>\n"
@@ -100,7 +100,7 @@ async def svc_menu(q: CallbackQuery, state: FSMContext):
         kb([
             ("📏 Бесплатный замер", "svc:measure"),
             ("🦟 Замер москитных сеток — 500 ₽", "svc:mosquito_measure"),
-            ("🛠 Монтаж 1000 ₽", "svc:install"),
+            ("🛠 Монтаж стеклопакета 1000 ₽", "svc:install"),
             ("🔲 Замена стеклопакета", "svc:glass"),
             ("⚙️ Регулировка", "svc:adjust"),
             ("🧵 Уплотнитель", "svc:seal"),

@@ -36,9 +36,7 @@ from pricing.price_list import (
     get_balcony_glazing_package,
     GLASS_PRICE_PER_M2,
     get_door_price,
-    STANDARD_PVC_DOORS,
     BALCONY_DOOR_MOSQUITO_NET,
-    get_standard_pvc_door_price,
 )
 from states import CalculationStates
 from storage.db import Database
@@ -50,7 +48,7 @@ WINDOW_SIZE_PRESETS = {
     2: [(1000, 1200), (1200, 1200), (1200, 1400), (1300, 1400), (1400, 1400), (1500, 1400)],
     3: [(1800, 1200), (1800, 1400), (2000, 1400), (2100, 1400), (2400, 1400)],
 }
-DOOR_SIZE_PRESETS = [(900, 2100), (1000, 2100), (1100, 2100), (1300, 2100), (1400, 2100), (1600, 2100)]
+DOOR_SIZE_PRESETS = [(700, 2000), (700, 2100), (800, 2100), (900, 2100)]
 BALCONY_PRESETS = [
     (700, 2100, 800, 1300),
     (700, 2100, 800, 1400),
@@ -65,8 +63,8 @@ MAX_CART_ITEMS = 10
 FRIENDLY_GLASS = {
     "24": "СП 24 мм",
     "32": "СП 32 мм",
-    "24_i": "СП 24 мм + i (2 стороны)",
-    "32_i": "СП 32 мм + i (2 стороны)",
+    "24_i": "СП 24 мм + i (2 стороны, +2 000 ₽)",
+    "32_i": "СП 32 мм + i (2 стороны, +2 000 ₽)",
 }
 FRIENDLY_DOOR_UI = {"single": "Одностворчатая дверь", "double": "Двустворчатая дверь"}
 FRIENDLY_SASH_UI = {"T": "Стандартная дверь", "Z": "Усиленная дверь"}
@@ -201,7 +199,6 @@ async def _goto_home(target, state: FSMContext):
                 ("📏 Заказать замер", "calc:measure"),
                 ("🛒 Мой расчёт", "calc:cart_menu"),
                 ("📋 Мои заявки", "nav:history"),
-                ("💬 Связаться с менеджером", "manager"),
                 ("🔧 Сервис", "svc:menu"),
                 ("ℹ️ Как это работает", "nav:help"),
             ], cols=2),
@@ -210,8 +207,6 @@ async def _goto_home(target, state: FSMContext):
         await msg.answer("🏠 <b>Главное меню</b>", parse_mode="HTML", reply_markup=kb([
             ("🧮 Рассчитать стоимость", "calc:start"), ("📏 Заказать замер", "calc:measure"),
             ("🛒 Мой расчёт", "calc:cart_menu"), ("📋 Мои заявки", "nav:history"),
-            ("💬 Связаться с менеджером", "manager"),
-            ("🔧 Сервис", "svc:menu"), ("ℹ️ Как это работает", "nav:help"),
         ], cols=2))
 
 
@@ -234,14 +229,6 @@ async def _edit_or_answer(target, text: str, markup, state: FSMContext, user_id:
                 parse_mode="HTML",
                 reply_markup=markup,
             )
-            return
-        except Exception:
-            pass
-    if isinstance(target, CallbackQuery):
-        try:
-            await msg.edit_text(text, parse_mode="HTML", reply_markup=markup)
-            await state.update_data(builder_message_id=msg.message_id, builder_chat_id=msg.chat.id)
-            await _persist(state, user_id)
             return
         except Exception:
             pass
@@ -284,8 +271,6 @@ def _cfg(data: dict) -> CalculationConfig:
     extras = dict(data.get("extras") or {})
     if data.get("sash_configuration"):
         extras["sash_configuration"] = data["sash_configuration"]
-    if data.get("standard_door_key"):
-        extras["standard_door_key"] = data["standard_door_key"]
     kwargs["extras"] = extras
     return CalculationConfig(**kwargs)
 
@@ -298,8 +283,6 @@ def _product_fields(data: dict) -> dict:
     out = {k: v for k, v in data.items() if k not in skip and not k.startswith("_")}
     if data.get("sash_configuration"):
         out["sash_configuration"] = data["sash_configuration"]
-    if data.get("standard_door_key"):
-        out["standard_door_key"] = data["standard_door_key"]
     return out
 
 
@@ -397,7 +380,7 @@ def _defaults_window() -> dict:
 
 def _defaults_door() -> dict:
     return {
-        "construction_type": "door", "profile": "70", "width_mm": 900, "height_mm": 2100, "standard_door_key": "900x2100",
+        "construction_type": "door", "profile": "70", "width_mm": 900, "height_mm": 2100,
         "door_type": "single", "opening": "single", "door_sash": "T",
         "door_threshold": "frame", "door_lock": "single", "door_fittings": "push",
         "glass": "32", "sill_type": None, "mosquito": False,
@@ -463,18 +446,17 @@ def _screen_builder(data: dict) -> tuple[str, list[tuple[str, str]]]:
         if cfg not in {"fixed", "fixed_fixed", "fixed_fixed_fixed"}:
             rows.append(("↔️ Сторона открывания", "b:edit:dir"))
     elif ct == "door":
-        size_key = data.get("standard_door_key") or f"{data.get('width_mm')}x{data.get('height_mm')}"
-        final_price = STANDARD_PVC_DOORS.get(size_key)
         text = (
-            "🧮 <b>Входная дверь ПВХ</b>\n\n"
+            "🧮 <b>Конструктор двери</b>\n\n"
             f"📐 Размер: <b>{data.get('width_mm')} × {data.get('height_mm')} мм</b>\n"
-            "🧱 Профиль: <b>70 мм</b>\n"
-            "🔲 Заполнение: <b>стандартная комплектация</b>\n\n"
-            f"💰 <b>{fmt_money(final_price) if final_price is not None else live}</b> <i>с монтажом</i>"
+            f"🚪 {FRIENDLY_DOOR_UI.get(data.get('door_type'), 'Дверь')} · {FRIENDLY_SASH_UI.get(data.get('door_sash'), 'Стандартная дверь')}\n"
+            f"🔲 {_label_glass(data.get('glass'))}\n"
+            f"⚙️ Дополнительно: {escape(_extras_summary(data))}\n\n"
+            f"💰 <b>{live}</b> <i>ориентировочно</i>"
         )
         rows = [
-            ("📐 Выбрать стандартный размер", "b:edit:door_standard"),
-            ("📏 Заказать замер", "calc:measure"),
+            ("📐 Размер", "b:edit:size"), ("🚪 Параметры двери", "b:edit:door"),
+            ("🔲 Стеклопакет", "b:edit:glass"), ("⚙️ Дополнительно", "b:edit:extras"),
         ]
     elif ct == "balcony":
         text = (
@@ -591,24 +573,18 @@ async def _render_screen(target, state: FSMContext, screen: str, push: bool = Tr
         return await _show_window_configs(target, state, n)
     if screen == "profile":
         return await _edit_or_answer(target, "🧱 <b>Профиль</b>", kb([("58 мм", "b:set:profile:58"), ("70 мм", "b:set:profile:70"), ("⬅️ Назад", "b:back")], cols=2), state, user_id, "profile", push)
-    if screen == "door_standard":
-        rows = [(f"{w} × {h} мм", f"b:set:doorstandard:{w}x{h}") for w, h in DOOR_SIZE_PRESETS]
-        rows.append(("⬅️ Назад", "b:back"))
-        return await _edit_or_answer(target, "🚪 <b>Входная дверь ПВХ</b>\n\nВыберите стандартный размер.", kb(rows, cols=2), state, user_id, "door_standard", push)
     if screen == "size":
         ct = data.get("construction_type")
-        if ct == "door":
-            return await _render_screen(target, state, "door_standard", push)
-        presets = WINDOW_SIZE_PRESETS.get(data.get("sash_count") or 1, WINDOW_SIZE_PRESETS[1])
+        presets = DOOR_SIZE_PRESETS if ct == "door" else WINDOW_SIZE_PRESETS.get(data.get("sash_count") or 1, WINDOW_SIZE_PRESETS[1])
         rows = [(f"{w} × {h} мм", f"b:set:size:{w}x{h}") for w, h in presets]
         rows += [("✏️ Свои размеры", "b:set:size:custom"), ("⬅️ Назад", "b:back")]
         return await _edit_or_answer(target, "📐 <b>Выберите размер Ш × В</b>", kb(rows, cols=2), state, user_id, "size", push)
     if screen == "glass":
         glass_labels = {
-            "24": "СП 24 мм",
-            "32": "СП 32 мм",
-            "24_i": "СП 24 мм + i с двух сторон",
-            "32_i": "СП 32 мм + i с двух сторон",
+            "24": "СП 24 мм — 5 500 ₽/м²",
+            "32": "СП 32 мм — 7 000 ₽/м²",
+            "24_i": "СП 24 мм + i с двух сторон — +2 000 ₽",
+            "32_i": "СП 32 мм + i с двух сторон — +2 000 ₽",
         }
         rows = [(glass_labels[key], f"b:set:glass:{key}") for key, _ in _available_glasses(data) if key in glass_labels]
         rows.append(("⬅️ Назад", "b:back"))
@@ -772,7 +748,7 @@ async def show_construction(target, state: FSMContext):
     user_id = target.from_user.id if getattr(target, "from_user", None) else 0
     await state.set_state(CalculationStates.SELECT_CONSTRUCTION)
     await _edit_or_answer(target, "<b>Что хотите рассчитать?</b>\n\nВыберите конструкцию.", kb([
-        ("🪟 Окно", "calc:window"), ("🚪 Входная дверь ПВХ", "calc:door"),
+        ("🪟 Окно", "calc:window"), ("🚪 Дверь", "calc:door"),
         ("🧊 Стеклопакет отдельно", "calc:glass_unit"),
         ("🚪 Балконный блок", "calc:balcony"), ("🏢 Балконы и лоджии", "calc:bal_glazing"),
         ("🧩 Другая конструкция", "calc:nonstandard"), ("📏 Сразу заказать замер", "calc:measure"),
@@ -867,7 +843,7 @@ async def calc_start(q: CallbackQuery, state: FSMContext):
     await state.clear()
     await state.update_data(cart=cart, current_in_cart=False)
     await _persist(state, q.from_user.id)
-    await show_construction(q, state)
+    await show_construction(q.message, state)
 
 
 @router.callback_query(F.data == "calc:window")
@@ -1004,31 +980,9 @@ async def set_profile(q: CallbackQuery, state: FSMContext):
     await q.answer(); await state.update_data(profile=q.data.rsplit(":", 1)[1]); await show_builder(q, state, reset_history=True)
 
 
-@router.callback_query(F.data == "b:edit:door_standard")
-async def edit_door_standard(q: CallbackQuery, state: FSMContext):
-    await q.answer()
-    await _render_screen(q, state, "door_standard")
-
-
 @router.callback_query(F.data == "b:edit:size")
 async def edit_size(q: CallbackQuery, state: FSMContext):
     await q.answer(); await _render_screen(q, state, "size")
-
-
-@router.callback_query(F.data.startswith("b:set:doorstandard:"))
-async def set_door_standard(q: CallbackQuery, state: FSMContext):
-    await q.answer()
-    key = q.data.rsplit(":", 1)[1]
-    if key not in STANDARD_PVC_DOORS:
-        return await q.answer("Размер не найден", show_alert=True)
-    w, h = map(int, key.split("x"))
-    await state.update_data(
-        standard_door_key=key, width_mm=w, height_mm=h, profile="70",
-        door_type="single" if w <= 1100 else "double", door_sash="T",
-        door_threshold="frame", door_lock="multi", door_fittings="handles_closer",
-        glass="32", opening_direction="right",
-    )
-    await show_builder(q, state, reset_history=True)
 
 
 @router.callback_query(F.data.startswith("b:set:size:"))

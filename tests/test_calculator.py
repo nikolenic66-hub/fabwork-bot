@@ -167,7 +167,7 @@ def test_balcony_glazing_returns_orientir_range():
 def test_service_prices():
     assert service_measure() == Decimal("0.00")
     total, items = service_glass32(1, True, True)
-    assert total == Decimal("9000.00")  # 7500+500+1000
+    assert total == Decimal("8500.00")  # 7000+500+1000
     total24, items24 = service_glass_replace("24", 1, True, True)
     assert total24 == Decimal("7000.00")  # 5500+500+1000
     mosquito_total, mosquito_items = service_mosquito_measure()

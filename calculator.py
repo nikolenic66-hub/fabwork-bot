@@ -22,7 +22,6 @@ from pricing.price_list import (
     get_balcony_glazing_package,
     get_connector_price,
     get_door_price,
-    get_standard_pvc_door_price,
     get_ebb_price,
     get_sill_price,
     get_window_price,
@@ -268,14 +267,6 @@ class Calculator:
         return items
 
     def _door_items(self, c: CalculationConfig) -> list[EstimateItem]:
-        standard_key = (c.extras or {}).get("standard_door_key")
-        if standard_key:
-            try:
-                base = get_standard_pvc_door_price(standard_key)
-            except ValueError as e:
-                raise PricingError(str(e)) from e
-            w, h = standard_key.split("x", 1)
-            return [EstimateItem(f"Входная дверь ПВХ {w}×{h} мм, стандартная комплектация", base)]
         if not c.width_mm or not c.height_mm or c.width_mm <= 0 or c.height_mm <= 0:
             raise PricingError("Укажите корректные размеры двери")
         self._check_size(c, c.width_mm, c.height_mm)

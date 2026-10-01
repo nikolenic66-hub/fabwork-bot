@@ -136,18 +136,18 @@ I_GLASS_SURCHARGE_PER_CONSTRUCTION = Decimal("2000")
 
 # Балконный блок: база профиля/фурнитуры без стеклопакета; СП добавляется по площади.
 BALCONY_BLOCK_BASE = {
-    # Снижение примерно на 25% относительно предыдущей версии.
+    # Снижено примерно на 7 000 ₽ по базе конструкции относительно прежнего прайса.
     "58": {
-        "door": Decimal("3375"),
-        "window_fixed": Decimal("1500"),
-        "window_tilt_turn": Decimal("2250"),
-        "connector": Decimal("375"),
+        "door": Decimal("4500"),
+        "window_fixed": Decimal("2000"),
+        "window_tilt_turn": Decimal("3000"),
+        "connector": Decimal("500"),
     },
     "70": {
-        "door": Decimal("6000"),
-        "window_fixed": Decimal("2625"),
-        "window_tilt_turn": Decimal("3375"),
-        "connector": Decimal("525"),
+        "door": Decimal("8000"),
+        "window_fixed": Decimal("3500"),
+        "window_tilt_turn": Decimal("4500"),
+        "connector": Decimal("700"),
     },
 }
 
@@ -168,24 +168,6 @@ DOOR_PRICES = {
     "single": {"T": Decimal("22000.00"), "Z": Decimal("23000.00")},
     "double": {"T": Decimal("32000.00"), "Z": Decimal("33500.00")},
 }
-
-# Входные ПВХ-двери: только шесть стандартных вариантов.
-# Значения — финальная цена из Dealer с монтажом 17%.
-STANDARD_PVC_DOORS = {
-    "900x2100": Decimal("42889.97"),
-    "1000x2100": Decimal("44300.00"),
-    "1100x2100": Decimal("44315.00"),
-    "1300x2100": Decimal("60000.00"),
-    "1400x2100": Decimal("62000.00"),
-    "1600x2100": Decimal("64486.67"),
-}
-
-def get_standard_pvc_door_price(size_key: str) -> Decimal:
-    try:
-        total = STANDARD_PVC_DOORS[size_key]
-    except KeyError as exc:
-        raise ValueError("Стандартный размер двери не найден") from exc
-    return money(total / (Decimal("1.00") + INSTALLATION_RATE))
 DOOR_THRESHOLD_PRICE = {"alu_low": Decimal("1500.00"), "frame": Decimal("0.00")}
 DOOR_LOCK_PRICE = {"single": Decimal("0.00"), "multi": Decimal("3200.00")}
 DOOR_FITTINGS_PRICE = {"push": Decimal("1800.00"), "handles_closer": Decimal("4800.00")}
@@ -220,7 +202,7 @@ SERVICE_PRICES = {
     "special_measure": Decimal("500.00"),   # замер москитных сеток / стеклопакетов
     "install_visit": Decimal("1000.00"),    # выезд на монтаж / монтажные работы (минимум)
     "glass24_replace": Decimal("5500.00"),  # замена стеклопакета 24 мм (1 шт)
-    "glass32_replace": Decimal("7500.00"),  # замена стеклопакета 32 мм (1 шт)
+    "glass32_replace": Decimal("7000.00"),  # замена стеклопакета 32 мм (1 шт)
     "adjust_visit": Decimal("1000.00"),     # выезд мастера на регулировку
     "adjust_window": Decimal("300.00"),     # регулировка 1 окна
     "adjust_door": Decimal("500.00"),       # регулировка 1 двери
