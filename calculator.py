@@ -22,6 +22,7 @@ from pricing.price_list import (
     get_balcony_glazing_package,
     get_connector_price,
     get_door_price,
+    get_standard_pvc_door_price,
     get_ebb_price,
     get_sill_price,
     get_window_price,
@@ -267,6 +268,14 @@ class Calculator:
         return items
 
     def _door_items(self, c: CalculationConfig) -> list[EstimateItem]:
+        standard_key = (c.extras or {}).get("standard_door_key")
+        if standard_key:
+            try:
+                base = get_standard_pvc_door_price(standard_key)
+            except ValueError as e:
+                raise PricingError(str(e)) from e
+            w, h = standard_key.split("x", 1)
+            return [EstimateItem(f"Входная дверь ПВХ {w}×{h} мм, стандартная комплектация", base)]
         if not c.width_mm or not c.height_mm or c.width_mm <= 0 or c.height_mm <= 0:
             raise PricingError("Укажите корректные размеры двери")
         self._check_size(c, c.width_mm, c.height_mm)
@@ -278,20 +287,16 @@ class Calculator:
         glass = c.glass or "32"
         if not all([opening, sash, threshold, lock, fittings]):
             raise PricingError("Не заполнены параметры двери")
-        standard_price = (c.extras or {}).get("standard_door_price") if getattr(c, "extras", None) else None
-        if standard_price is not None:
-            price = money(Decimal(str(standard_price)))
-        else:
-            try:
-                price = get_door_price(opening, sash, threshold, lock, fittings, glass)
-            except ValueError as e:
-                raise PricingError(str(e)) from e
+        try:
+            price = get_door_price(opening, sash, threshold, lock, fittings, glass)
+        except ValueError as e:
+            raise PricingError(str(e)) from e
         base_glass = base_glass_key(glass)
         if base_glass not in GLASS_PRICE_PER_M2:
             raise PricingError("Доступны только стеклопакеты 24 и 32 мм")
-        if standard_price is None:
-            price += money((Decimal(c.width_mm * c.height_mm) / Decimal("1000000")) * GLASS_PRICE_PER_M2[base_glass])
-        # Для шести стандартных дверей цена уже включает всю комплектацию.
+        price += money((Decimal(c.width_mm * c.height_mm) / Decimal("1000000")) * GLASS_PRICE_PER_M2[base_glass])
+        # i-доплата учитывается единообразно в общем калькуляторе,
+        # чтобы она не попадала в базу, к которой применяется монтаж 17%.
         price = money(price)
         direction = ""
         if c.opening_direction:

@@ -53,9 +53,15 @@ router = Router(name="main")
 def menu():
     b = InlineKeyboardBuilder()
     b.button(text="🧮 Рассчитать стоимость", callback_data="calc:start")
+    b.button(text="🪟 Окна", callback_data="calc:window")
+    b.button(text="🏢 Балконный блок", callback_data="calc:balcony")
+    b.button(text="🏙️ Балконы и лоджии", callback_data="calc:bal_glazing")
+    b.button(text="🚪 Входная дверь ПВХ", callback_data="calc:door")
+    b.button(text="🧊 Замена стеклопакета", callback_data="svc:menu")
     b.button(text="📏 Заказать замер", callback_data="calc:measure")
     b.button(text="🛒 Мой расчёт", callback_data="calc:cart_menu")
     b.button(text="📋 Мои заявки", callback_data="nav:history")
+    b.button(text="💬 Связаться с менеджером", callback_data="manager")
     b.button(text="🔧 Сервис и ремонт", callback_data="svc:menu")
     b.button(text="ℹ️ Как это работает", callback_data="help")
     b.adjust(2)
@@ -98,6 +104,16 @@ async def cancel_cmd(m: Message, state: FSMContext):
     # Сбрасываем текущий шаг, но не удаляем сохранённый «Мой расчёт».
     await state.clear()
     await m.answer("Текущий шаг отменён. Сохранённые расчёты останутся в «Мой расчёт».", reply_markup=menu())
+
+
+@router.callback_query(F.data == "manager")
+async def manager_cb(q: CallbackQuery):
+    await q.answer()
+    await q.message.edit_text(
+        "💬 <b>Связь с менеджером</b>\n\n"
+        "Напишите вопрос, отправьте размеры или фото объекта — менеджер поможет сделать предварительный расчёт и ответит в рабочее время.",
+        parse_mode="HTML", reply_markup=menu(),
+    )
 
 
 @router.callback_query(F.data == "history")

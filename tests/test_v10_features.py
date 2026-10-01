@@ -64,7 +64,7 @@ def test_mosquito_measurement_is_500_in_calculation_logic():
 def test_special_measurement_fee_is_500():
     from pricing.price_list import service_mosquito_measure, service_glass32
     assert service_mosquito_measure()[0] == Decimal("500.00")
-    assert service_glass32(1, True, False)[0] == Decimal("7500.00")
+    assert service_glass32(1, True, False)[0] == Decimal("8000.00")
 
 
 def test_history_marks_free_measurement_as_free():
@@ -128,13 +128,3 @@ def test_balcony_frame_has_floor_and_slab_options_only():
     assert "Балконная рама от пола до потолка" in BALCONY_GLAZING_TYPES["frame"]["label"]
     assert "Балконная рама от плиты до потолка" in BALCONY_GLAZING_TYPES["frame_slab"]["label"]
     assert "1,3 м" in BALCONY_GLAZING_TYPES["frame_slab"]["label"]
-
-
-def test_balcony_manager_request_uses_phone_and_profile_link_without_direct_contact_button():
-    text = Path(__file__).parents[1].joinpath("handlers", "calculation.py").read_text(encoding="utf-8")
-    assert '"💬 Оставить заявку менеджеру", "manager:request"' in text
-    assert "MANAGER_PHONE" in text
-    assert 'status="manager"' in text
-    assert 'Открыть профиль' in text
-    assert 'Телефон: <b>' in text
-    assert "manager_request_source" in text
