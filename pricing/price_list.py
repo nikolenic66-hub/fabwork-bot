@@ -136,7 +136,7 @@ I_GLASS_SURCHARGE_PER_CONSTRUCTION = Decimal("2000")
 
 # Балконный блок: база профиля/фурнитуры без стеклопакета; СП добавляется по площади.
 BALCONY_BLOCK_BASE = {
-    # Снижено примерно на 25% относительно предыдущей версии.
+    # Снижение примерно на 25% относительно предыдущей версии.
     "58": {
         "door": Decimal("3375"),
         "window_fixed": Decimal("1500"),
@@ -170,7 +170,7 @@ DOOR_PRICES = {
 }
 
 # Входные ПВХ-двери: только шесть стандартных вариантов.
-# Значения здесь — финальная цена из Dealer с монтажом 17%.
+# Значения — финальная цена из Dealer с монтажом 17%.
 STANDARD_PVC_DOORS = {
     "900x2100": Decimal("42889.97"),
     "1000x2100": Decimal("44300.00"),
@@ -181,14 +181,11 @@ STANDARD_PVC_DOORS = {
 }
 
 def get_standard_pvc_door_price(size_key: str) -> Decimal:
-    """Возвращает базовую цену стандартной входной двери без монтажа 17%."""
     try:
         total = STANDARD_PVC_DOORS[size_key]
     except KeyError as exc:
         raise ValueError("Стандартный размер двери не найден") from exc
     return money(total / (Decimal("1.00") + INSTALLATION_RATE))
-
-
 DOOR_THRESHOLD_PRICE = {"alu_low": Decimal("1500.00"), "frame": Decimal("0.00")}
 DOOR_LOCK_PRICE = {"single": Decimal("0.00"), "multi": Decimal("3200.00")}
 DOOR_FITTINGS_PRICE = {"push": Decimal("1800.00"), "handles_closer": Decimal("4800.00")}

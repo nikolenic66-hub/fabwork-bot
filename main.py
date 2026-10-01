@@ -11,10 +11,11 @@ from aiogram import Bot, Dispatcher, Router, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.filters import CommandStart, Command
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.context import FSMContext
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+from states import ManagerStates
 
 from handlers.calculation import router as calculation_router
 from handlers.services import router as services_router
@@ -53,16 +54,11 @@ router = Router(name="main")
 def menu():
     b = InlineKeyboardBuilder()
     b.button(text="🧮 Рассчитать стоимость", callback_data="calc:start")
-    b.button(text="🪟 Окна", callback_data="calc:window")
-    b.button(text="🏢 Балконный блок", callback_data="calc:balcony")
-    b.button(text="🏙️ Балконы и лоджии", callback_data="calc:bal_glazing")
-    b.button(text="🚪 Входная дверь ПВХ", callback_data="calc:door")
-    b.button(text="🧊 Замена стеклопакета", callback_data="svc:menu")
     b.button(text="📏 Заказать замер", callback_data="calc:measure")
     b.button(text="🛒 Мой расчёт", callback_data="calc:cart_menu")
     b.button(text="📋 Мои заявки", callback_data="nav:history")
     b.button(text="💬 Связаться с менеджером", callback_data="manager")
-    b.button(text="🔧 Сервис и ремонт", callback_data="svc:menu")
+    b.button(text="🔧 Сервис", callback_data="svc:menu")
     b.button(text="ℹ️ Как это работает", callback_data="help")
     b.adjust(2)
     return b.as_markup()
@@ -94,7 +90,7 @@ async def help_cmd(event: Message | CallbackQuery):
     )
     if isinstance(event, CallbackQuery):
         await event.answer()
-        await event.message.answer(text, reply_markup=menu())
+        await event.message.edit_text(text, parse_mode="HTML", reply_markup=menu())
     else:
         await event.answer(text, reply_markup=menu())
 
@@ -107,13 +103,77 @@ async def cancel_cmd(m: Message, state: FSMContext):
 
 
 @router.callback_query(F.data == "manager")
-async def manager_cb(q: CallbackQuery):
+async def manager_cb(q: CallbackQuery, state: FSMContext):
     await q.answer()
-    await q.message.edit_text(
-        "💬 <b>Связь с менеджером</b>\n\n"
-        "Напишите вопрос, отправьте размеры или фото объекта — менеджер поможет сделать предварительный расчёт и ответит в рабочее время.",
-        parse_mode="HTML", reply_markup=menu(),
+    await state.set_state(ManagerStates.PHONE)
+    await state.update_data(manager_message_id=q.message.message_id, manager_chat_id=q.message.chat.id)
+    markup = ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="📱 Отправить номер", request_contact=True)],
+                  [KeyboardButton(text="❌ Отмена")]],
+        resize_keyboard=True, one_time_keyboard=True,
     )
+    await q.message.edit_text(
+        "💬 <b>Оставить заявку менеджеру</b>\n\n"
+        "Укажите ваш номер телефона. Менеджер получит ваши имя, номер и ссылку на Telegram-профиль и свяжется с вами.",
+        parse_mode="HTML", reply_markup=None,
+    )
+    await q.message.answer("Номер телефона — кнопкой или текстом:", reply_markup=markup)
+
+
+async def _finish_manager_lead(m: Message, state: FSMContext, phone: str):
+    data = await state.get_data()
+    user = m.from_user
+    name = " ".join(x for x in [user.first_name, user.last_name] if x).strip() or "Без имени"
+    username = f"@{user.username}" if user.username else "не указан"
+    profile = f"https://t.me/{user.username}" if user.username else f"tg://user?id={user.id}"
+    manager_id = int(os.getenv("MANAGER_CHAT_ID", "0") or 0)
+    source = "Кнопка «Связаться с менеджером»"
+    text = (
+        "💬 <b>Новая заявка менеджеру</b>\n\n"
+        f"👤 Имя: <b>{name}</b>\n"
+        f"📞 Телефон: <b>{phone}</b>\n"
+        f"📍 Источник: <b>{source}</b>\n"
+        f"🔗 Telegram: {profile}\n"
+        f"👤 Username: {username}"
+    )
+    if manager_id:
+        try:
+            await m.bot.send_message(manager_id, text, parse_mode="HTML")
+        except Exception as exc:
+            log.exception("Не удалось отправить заявку менеджеру: %s", exc)
+    await state.clear()
+    try:
+        mid = int(data.get("manager_message_id"))
+        await m.bot.edit_message_text(
+            chat_id=m.chat.id, message_id=mid,
+            text="💬 <b>Спасибо!</b>\n\nМенеджер получил вашу заявку и свяжется с вами в ближайшее время.",
+            parse_mode="HTML", reply_markup=menu(),
+        )
+    except Exception:
+        await m.answer("💬 <b>Спасибо!</b> Менеджер свяжется с вами в ближайшее время.", parse_mode="HTML", reply_markup=menu())
+    await m.answer("", reply_markup=ReplyKeyboardRemove())
+
+
+@router.message(ManagerStates.PHONE, F.contact)
+async def manager_phone_contact(m: Message, state: FSMContext):
+    await _finish_manager_lead(m, state, m.contact.phone_number)
+
+
+@router.message(ManagerStates.PHONE)
+async def manager_phone_text(m: Message, state: FSMContext):
+    if (m.text or "").strip().lower() in {"❌ отмена", "отмена", "cancel"}:
+        await state.clear()
+        await m.answer("Заявка отменена.", reply_markup=menu())
+        await m.answer("", reply_markup=ReplyKeyboardRemove())
+        return
+    digits = "".join(ch for ch in (m.text or "") if ch.isdigit())
+    if len(digits) < 10:
+        await m.answer("Нужен номер из 10+ цифр.", reply_markup=ReplyKeyboardMarkup(
+            keyboard=[[KeyboardButton(text="📱 Отправить номер", request_contact=True)], [KeyboardButton(text="❌ Отмена")]],
+            resize_keyboard=True, one_time_keyboard=True,
+        ))
+        return
+    await _finish_manager_lead(m, state, m.text.strip())
 
 
 @router.callback_query(F.data == "history")

@@ -33,6 +33,10 @@ class CalculationStates(StatesGroup):
     MEASURE_ADDRESS = State()
 
 
+class ManagerStates(StatesGroup):
+    PHONE = State()
+
+
 class HistoryStates(StatesGroup):
     VIEW = State()
 
