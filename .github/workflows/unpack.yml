@@ -1,0 +1,36 @@
+name: Распаковать проект
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  unpack:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Получить репозиторий
+        uses: actions/checkout@v6
+
+      - name: Распаковать проект
+        run: |
+          mkdir -p /tmp/project
+          unzip -o fab-v14-fadehost-ready-root.zip -d /tmp/project
+
+          if [ -f /tmp/project/fab/main.py ]; then
+            cp -a /tmp/project/fab/. .
+          else
+            cp -a /tmp/project/. .
+          fi
+
+          rm -f fab-v14-fadehost-ready-root.zip
+
+      - name: Сохранить проект
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet || git commit -m "Распаковать проект бота"
+          git push
