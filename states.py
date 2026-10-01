@@ -31,6 +31,7 @@ class CalculationStates(StatesGroup):
     MEASURE_NAME = State()
     MEASURE_PHONE = State()
     MEASURE_ADDRESS = State()
+    MANAGER_PHONE = State()
 
 
 class HistoryStates(StatesGroup):

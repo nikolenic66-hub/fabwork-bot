@@ -57,7 +57,7 @@ BALCONY_PRESETS = [
     (800, 2100, 900, 1400),
     (900, 2100, 900, 1400),
 ]
-STATUS_LABELS = {"new": "🆕 Новая", "measurer": "📏 Замер", "quote": "📋 КП", "done": "✅ Закрыта"}
+STATUS_LABELS = {"new": "🆕 Новая", "measurer": "📏 Замер", "quote": "📋 КП", "done": "✅ Закрыта", "manager": "💬 Менеджер"}
 MAX_CART_ITEMS = 10
 
 FRIENDLY_GLASS = {
@@ -877,17 +877,102 @@ async def pick_bal_glazing(q: CallbackQuery, state: FSMContext):
         "💰 <b>Ориентировочная стоимость — от 70 000 до 200 000+ ₽</b>\n\n"
         "Для предварительного точного расчёта рекомендуем:\n\n"
         "📏 <b>Заказать бесплатный замер</b> — специалист выполнит замер на объекте, после чего мы рассчитаем стоимость конструкции.\n\n"
-        "💬 Или <b>связаться с менеджером</b> и отправить ему размеры/фото объекта для предварительного расчёта."
+        "💬 Или <b>оставить заявку менеджеру</b> — укажите номер телефона, и менеджер свяжется с вами для предварительного расчёта."
     )
     await q.message.edit_text(
         text, parse_mode="HTML",
         reply_markup=kb([
             ("📏 Заказать бесплатный замер", "calc:measure"),
-            ("💬 Связаться с менеджером", "manager"),
+            ("💬 Оставить заявку менеджеру", "manager:request"),
             ("🏠 Меню", "nav:home"),
         ], cols=2),
     )
 
+
+
+async def _manager_request_message(q: CallbackQuery, state: FSMContext):
+    await state.set_state(CalculationStates.MANAGER_PHONE)
+    await state.update_data(manager_request_source="Балконы и лоджии")
+    await _persist(state, q.from_user.id)
+    text = (
+        "💬 <b>Заявка менеджеру</b>\n\n"
+        "Оставьте номер телефона — менеджер свяжется с вами для предварительного расчёта.\n\n"
+        "Нажмите кнопку ниже или отправьте номер сообщением."
+    )
+    await q.message.edit_text(text, parse_mode="HTML", reply_markup=None)
+    await q.message.answer(
+        "📱 Отправьте номер телефона",
+        reply_markup=reply_nav_keyboard(with_contact=True),
+    )
+
+
+@router.callback_query(F.data == "manager:request")
+async def manager_request(q: CallbackQuery, state: FSMContext):
+    await q.answer()
+    await _manager_request_message(q, state)
+
+
+async def _finish_manager_request(m: Message, state: FSMContext, phone: str):
+    user_id = m.from_user.id
+    data = await _restore(state, user_id)
+    phone = phone.strip()
+    digits = "".join(ch for ch in phone if ch.isdigit())
+    if len(digits) < 10:
+        return await m.answer(
+            "Нужен номер из 10+ цифр.",
+            reply_markup=reply_nav_keyboard(with_contact=True),
+        )
+
+    username = (m.from_user.username or "").strip()
+    first_name = (m.from_user.first_name or "").strip()
+    dedupe_raw = f"manager|{user_id}|{phone}|{data.get('manager_request_source', 'Балконы и лоджии')}"
+    dedupe_key = hashlib.sha256(dedupe_raw.encode("utf-8")).hexdigest()
+    duplicate = db().recent_duplicate(user_id, dedupe_key, seconds=900)
+    if duplicate:
+        request_id = duplicate
+    else:
+        payload = {
+            "source": data.get("manager_request_source", "Балконы и лоджии"),
+            "username": username,
+            "telegram_id": user_id,
+        }
+        request_id = db().save_request(
+            user_id,
+            first_name,
+            phone,
+            json.dumps(payload, ensure_ascii=False),
+            "0",
+            status="manager",
+            dedupe_key=dedupe_key,
+        )
+        profile = f"https://t.me/{username}" if username else f"tg://user?id={user_id}"
+        manager_text = (
+            f"💬 <b>ЗАЯВКА МЕНЕДЖЕРУ №{request_id}</b>\n\n"
+            f"👤 <b>{escape(first_name or 'Без имени')}</b>\n"
+            f"📞 Телефон: <b>{escape(phone)}</b>\n"
+            f"📍 Источник: <b>{escape(data.get('manager_request_source', 'Балконы и лоджии'))}</b>\n"
+            f"Telegram: <a href=\"{escape(profile, quote=True)}\">Открыть профиль</a>"
+        )
+        await _notify_manager(m.bot, manager_text)
+
+    await state.clear()
+    await _persist(state, user_id)
+    await m.answer("Заявка отправлена менеджеру.", reply_markup=ReplyKeyboardRemove())
+    await m.bot.send_message(user_id, "Спасибо! Менеджер свяжется с вами для предварительного расчёта.", reply_markup=kb([("🧮 Рассчитать стоимость", "calc:start"), ("🏠 Меню", "nav:home")], cols=2))
+
+
+
+
+@router.message(CalculationStates.MANAGER_PHONE, F.contact)
+async def manager_phone_contact(m: Message, state: FSMContext):
+    await _finish_manager_request(m, state, m.contact.phone_number)
+
+
+@router.message(CalculationStates.MANAGER_PHONE)
+async def manager_phone_text(m: Message, state: FSMContext):
+    if _is_cancel_text(m.text) or _is_menu_text(m.text):
+        return await _goto_home(m, state)
+    await _finish_manager_request(m, state, m.text or "")
 
 
 @router.callback_query(F.data == "calc:glass_unit")
