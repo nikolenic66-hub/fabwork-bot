@@ -26,7 +26,6 @@ class Estimate:
 class CalculationConfig:
     construction_type: str = ""
     profile: str | None = None
-    door_standard: str | None = None
     width_mm: int | None = None
     height_mm: int | None = None
     sash_count: int | None = None
