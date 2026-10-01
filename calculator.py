@@ -383,11 +383,11 @@ class Calculator:
         return items
 
     def _balcony_glazing_items(self, c: CalculationConfig) -> list[EstimateItem]:
-        """Прямая рама / лоджия / П- / Г-образный — пакет без допов + опции."""
+        """Балконная рама — ориентировочный диапазон без точной сметы."""
         kind = c.scheme_key or (c.extras or {}).get("glazing_kind") or "frame"
         profile = c.profile or "58"
         if kind not in BALCONY_GLAZING_TYPES:
-            raise PricingError("Выберите тип: рама, лоджия, П-образный, Г-образный")
+            raise PricingError("Выберите тип балконной рамы")
         try:
             low, high = get_balcony_glazing_package(kind, profile)
         except ValueError as e:

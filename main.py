@@ -103,10 +103,10 @@ async def cancel_cmd(m: Message, state: FSMContext):
 @router.callback_query(F.data == "manager")
 async def manager_cb(q: CallbackQuery):
     await q.answer()
-    await q.message.answer(
-        "📞 Напишите вопрос сюда или оставьте заявку.\n"
-        "Менеджер ответит в рабочее время.",
-        reply_markup=menu(),
+    await q.message.edit_text(
+        "💬 <b>Связь с менеджером</b>\n\n"
+        "Напишите вопрос, отправьте размеры или фото объекта — менеджер поможет сделать предварительный расчёт и ответит в рабочее время.",
+        parse_mode="HTML", reply_markup=menu(),
     )
 
 

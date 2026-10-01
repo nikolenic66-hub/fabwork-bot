@@ -484,7 +484,7 @@ def _screen_builder(data: dict) -> tuple[str, list[tuple[str, str]]]:
         except Exception:
             range_text = "уточняется"
         text = (
-            "🏢 <b>Остекление балкона / лоджии</b>\n\n"
+            "🏢 <b>Балконная рама</b>\n\n"
             f"<b>{info.get('label', kind)}</b>\n<pre>{info.get('scheme', '')}</pre>"
             f"🧱 Профиль: <b>{_profile_label(data.get('profile'))}</b>\n"
             f"💰 <b>{range_text}</b> <i>ориентировочно</i>\n\n"
@@ -750,7 +750,7 @@ async def show_construction(target, state: FSMContext):
     await _edit_or_answer(target, "<b>Что хотите рассчитать?</b>\n\nВыберите конструкцию.", kb([
         ("🪟 Окно", "calc:window"), ("🚪 Дверь", "calc:door"),
         ("🧊 Стеклопакет отдельно", "calc:glass_unit"),
-        ("🚪 Балконный блок", "calc:balcony"), ("🏢 Балкон/лоджия", "calc:bal_glazing"),
+        ("🚪 Балконный блок", "calc:balcony"), ("🏢 Балконы и лоджии", "calc:bal_glazing"),
         ("🧩 Другая конструкция", "calc:nonstandard"), ("📏 Сразу заказать замер", "calc:measure"),
         ("🏠 Меню", "nav:home"),
     ], cols=2), state, user_id, "construction", False)
@@ -870,11 +870,23 @@ async def pick_balcony(q: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "calc:bal_glazing")
 async def pick_bal_glazing(q: CallbackQuery, state: FSMContext):
     await q.answer()
-    await state.update_data(
-        construction_type="balcony_glazing", profile="58", scheme_key="frame", glass="32",
-        width_mm=3000, height_mm=1500, mosquito=False, delivery=None, builder_history=[]
+    await state.set_state(CalculationStates.SELECT_CONSTRUCTION)
+    text = (
+        "🏢 <b>Балконы и лоджии</b>\n\n"
+        "Балконные рамы и лоджии — сложные конструкции, поэтому стоимость зависит от размеров, формы, профиля и особенностей объекта.\n\n"
+        "💰 <b>Ориентировочная стоимость — от 70 000 до 200 000+ ₽</b>\n\n"
+        "Для предварительного точного расчёта рекомендуем:\n\n"
+        "📏 <b>Заказать бесплатный замер</b> — специалист выполнит замер на объекте, после чего мы рассчитаем стоимость конструкции.\n\n"
+        "💬 Или <b>связаться с менеджером</b> и отправить ему размеры/фото объекта для предварительного расчёта."
     )
-    await show_builder(q, state, reset_history=True)
+    await q.message.edit_text(
+        text, parse_mode="HTML",
+        reply_markup=kb([
+            ("📏 Заказать бесплатный замер", "calc:measure"),
+            ("💬 Связаться с менеджером", "manager"),
+            ("🏠 Меню", "nav:home"),
+        ], cols=2),
+    )
 
 
 

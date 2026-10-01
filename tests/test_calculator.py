@@ -93,13 +93,12 @@ def test_balcony_block_70_near_40k():
     assert Decimal("35000") <= e.total <= Decimal("41000")
 
 
-def test_p_shape_58():
+def test_frame_slab_58():
     e = calculator.calculate(CalculationConfig(
-        construction_type="balcony_glazing", profile="58", scheme_key="p_shape",
-        width_mm=3000, height_mm=1500,
+        construction_type="balcony_glazing", profile="58", scheme_key="frame_slab",
+        width_mm=3000, height_mm=1300,
     ))
-    assert e.subtotal == Decimal("72500.00")
-    assert e.total == Decimal("84825.00")
+    assert e.subtotal == Decimal("80000.00")
 
 
 def test_frame_58():
@@ -109,12 +108,10 @@ def test_frame_58():
     assert e.subtotal == Decimal("80000.00")
 
 
-def test_p_frame_58_is_separate_from_p_shape_lodge():
+def test_frame_slab_58_uses_frame_range_until_separate_price_is_set():
     from pricing.price_list import get_balcony_glazing_package
-    low, high = get_balcony_glazing_package("p_frame", "58")
-    lodge_low, lodge_high = get_balcony_glazing_package("p_shape", "58")
-    assert (low, high) == (Decimal("120000.00"), Decimal("140000.00"))
-    assert (lodge_low, lodge_high) == (Decimal("65000.00"), Decimal("80000.00"))
+    low, high = get_balcony_glazing_package("frame_slab", "58")
+    assert (low, high) == (Decimal("75000.00"), Decimal("85000.00"))
 
 
 def test_validate_sash():
@@ -162,9 +159,9 @@ def test_i_surcharge_is_exactly_2000_and_not_in_installation_base():
 
 def test_balcony_glazing_returns_orientir_range():
     from pricing.price_list import get_balcony_glazing_package
-    low, high = get_balcony_glazing_package("p_frame", "58")
-    assert low == Decimal("120000.00")
-    assert high == Decimal("140000.00")
+    low, high = get_balcony_glazing_package("frame_slab", "58")
+    assert low == Decimal("75000.00")
+    assert high == Decimal("85000.00")
 
 
 def test_service_prices():

@@ -122,7 +122,9 @@ def test_service_glass_has_24_and_32_choices():
     assert 'svc:g:type:32' in text
 
 
-def test_p_frame_is_separate_customer_option():
+def test_balcony_frame_has_floor_and_slab_options_only():
     from pricing.price_list import BALCONY_GLAZING_TYPES
-    assert "p_frame" in BALCONY_GLAZING_TYPES
-    assert "П-образная балконная рама от пола до потолка" in BALCONY_GLAZING_TYPES["p_frame"]["label"]
+    assert set(BALCONY_GLAZING_TYPES) == {"frame", "frame_slab"}
+    assert "Балконная рама от пола до потолка" in BALCONY_GLAZING_TYPES["frame"]["label"]
+    assert "Балконная рама от плиты до потолка" in BALCONY_GLAZING_TYPES["frame_slab"]["label"]
+    assert "1,3 м" in BALCONY_GLAZING_TYPES["frame_slab"]["label"]

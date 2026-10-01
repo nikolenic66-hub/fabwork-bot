@@ -1,7 +1,7 @@
 """Цены и правила предварительного расчёта для клиентского Telegram-бота.
 
 Цены в рублях. Для окон и балконных блоков итог включает монтаж 17%.
-Остекление балкона/лоджии показывается только как ориентировочный диапазон.
+Балконные рамы показываются только как ориентировочный диапазон.
 """
 from __future__ import annotations
 
@@ -70,27 +70,15 @@ NONSTANDARD_SCHEMES = {
     },
 }
 
-# Остекление балкона / лоджии (не блок!)
+# Балконные рамы — только ориентировочные диапазоны, без точной сметы.
 BALCONY_GLAZING_TYPES = {
     "frame": {
         "label": "Балконная рама от пола до потолка (≈ 3,0 × 2,5 м)",
-        "scheme": "┌─────────────────┐\n│    рама балкона │\n└─────────────────┘",
+        "scheme": "┌─────────────────┐\n│    рама балкона │\n│                 │\n└─────────────────┘",
     },
-    "loggia": {
-        "label": "Прямая лоджия: фасад ≈ 3,0 м, высота ≈ 2,5 м",
-        "scheme": "┌─────────────────┐\n│   лоджия фронт  │\n└─────────────────┘",
-    },
-    "p_shape": {
-        "label": "П-образная лоджия: фасад ≈ 3,0 м + бока ≈ 0,95 м, высота ≈ 2,5 м",
-        "scheme": "┌──┐         ┌──┐\n│  ├─────────┤  │\n│  │         │  │\n└──┘         └──┘",
-    },
-    "p_frame": {
-        "label": "П-образная балконная рама от пола до потолка: фасад ≈ 3,0 м + два бока ≈ 0,95 м, высота ≈ 2,5 м",
-        "scheme": "┌──┐         ┌──┐\n│  ├─────────┤  │\n│  │         │  │\n└──┘         └──┘",
-    },
-    "g_shape": {
-        "label": "Г-образная лоджия: фасад ≈ 3,0 м + бок ≈ 0,95 м, высота ≈ 2,5 м",
-        "scheme": "┌──┐\n│  ├─────────┐\n│  │         │\n└──┘         │",
+    "frame_slab": {
+        "label": "Балконная рама от плиты до потолка (≈ 3,0 × 1,3 м)",
+        "scheme": "┌─────────────────┐\n│    рама балкона │\n│                 │\n├─────────────────┤\n│      плита      │\n└─────────────────┘",
     },
 }
 
@@ -163,15 +151,13 @@ BALCONY_BLOCK_BASE = {
     },
 }
 
-# Остекление балкона/лоджии — только ориентир, без попытки выдать его за точную смету.
+# Балконные рамы — только ориентир, без попытки выдать их за точную смету.
 BALCONY_GLAZING_PACKAGE = {
     # (от, до), без попытки заменить замер специалиста.
-    # Для 70 мм задан ориентир выше 58 мм; точные границы пользователь не указал.
+    # Для 70 мм задан ориентир выше 58 мм; отдельная цена для рамы от плиты пока не задана,
+    # поэтому используется тот же ориентир, что и для базовой балконной рамы.
     "frame": {"58": (Decimal("75000"), Decimal("85000")), "70": (Decimal("95000"), Decimal("110000"))},
-    "loggia": {"58": (Decimal("45000"), Decimal("55000")), "70": (Decimal("60000"), Decimal("75000"))},
-    "p_shape": {"58": (Decimal("65000"), Decimal("80000")), "70": (Decimal("85000"), Decimal("105000"))},
-    "p_frame": {"58": (Decimal("120000"), Decimal("140000")), "70": (Decimal("150000"), Decimal("175000"))},
-    "g_shape": {"58": (Decimal("55000"), Decimal("65000")), "70": (Decimal("72000"), Decimal("85000"))},
+    "frame_slab": {"58": (Decimal("75000"), Decimal("85000")), "70": (Decimal("95000"), Decimal("110000"))},
 }
 
 GLASS_UNIT_PRICE_PER_M2 = {"24": Decimal("5500"), "32": Decimal("7500")}
@@ -317,7 +303,7 @@ def get_balcony_glazing_package(kind: str, profile: str) -> tuple[Decimal, Decim
         low, high = BALCONY_GLAZING_PACKAGE[kind][profile]
         return money(low), money(high)
     except KeyError as exc:
-        raise ValueError("Тип остекления балкона/лоджии не настроен") from exc
+        raise ValueError("Тип балконной рамы не настроен") from exc
 
 
 def calculate_installation(subtotal: Decimal) -> Decimal:
@@ -333,7 +319,7 @@ def validate_size(width_mm: int, height_mm: int, construction_type: str = "windo
         if not (L["door_height_min"] <= height_mm <= L["door_height_max"]):
             return f"Высота двери {L['door_height_min']}–{L['door_height_max']} мм"
         return None
-    if construction_type in ("balcony_glazing", "frame", "loggia", "p_shape", "g_shape"):
+    if construction_type in ("balcony_glazing", "frame", "frame_slab"):
         return None
     if not (L["width_min"] <= width_mm <= L["width_max"]):
         return f"Ширина {L['width_min']}–{L['width_max']} мм"
