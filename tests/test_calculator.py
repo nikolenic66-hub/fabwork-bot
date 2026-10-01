@@ -74,9 +74,27 @@ def test_balcony_block_58_near_29k():
         sill2_type="pvc", sill2_depth_mm=300, sill2_length_mm=700,
     ))
     # materials should land total near 29000
-    assert Decimal("26000") <= e.total <= Decimal("29000")
+    assert Decimal("30000") <= e.total <= Decimal("33000")
     names = [i.name for i in e.items]
     assert sum(1 for n in names if "Подоконник" in n) == 2
+
+
+def test_balcony_glass_price_adjustments_match_confirmed_totals():
+    common = dict(
+        construction_type="balcony", profile="58",
+        door_type="single", door_sash="T", door_threshold="frame",
+        door_lock="single", door_fittings="push",
+        door_width_mm=700, door_height_mm=2100,
+        window_width_mm=800, window_height_mm=1400,
+        window_configuration="fixed",
+        sill_type="pvc", sill_depth_mm=300, sill_length_mm=800,
+        sill2_type="pvc", sill2_depth_mm=300, sill2_length_mm=800,
+        door_opening_mode="turn",
+    )
+    e24 = calculator.calculate(CalculationConfig(**common, glass="24"))
+    e32 = calculator.calculate(CalculationConfig(**common, glass="32"))
+    assert e24.total == Decimal("29869.09")
+    assert e32.total == Decimal("32913.33")
 
 
 def test_balcony_block_70_near_40k():
@@ -90,7 +108,24 @@ def test_balcony_block_70_near_40k():
         sill_type="pvc", sill_depth_mm=300, sill_length_mm=600,
         sill2_type="pvc", sill2_depth_mm=300, sill2_length_mm=700,
     ))
-    assert Decimal("30000") <= e.total <= Decimal("34000")
+    assert Decimal("35000") <= e.total <= Decimal("39000")
+
+
+def test_balcony_door_mosquito_net_is_3000():
+    common = dict(
+        construction_type="balcony", profile="58", glass="32",
+        door_type="single", door_sash="T", door_threshold="frame",
+        door_lock="single", door_fittings="push",
+        door_width_mm=700, door_height_mm=2100,
+        window_width_mm=800, window_height_mm=1400,
+        window_configuration="fixed",
+        sill_type="pvc", sill_depth_mm=300, sill_length_mm=800,
+        sill2_type="pvc", sill2_depth_mm=300, sill2_length_mm=800,
+        door_opening_mode="turn", door_mosquito=True,
+    )
+    e = calculator.calculate(CalculationConfig(**common))
+    mosquito = [i.price for i in e.items if i.name == "Дверная москитная сетка"]
+    assert mosquito == [Decimal("3000.00")]
 
 
 def test_balcony_door_modes_apply_1000_before_17_percent_discount():
@@ -106,7 +141,7 @@ def test_balcony_door_modes_apply_1000_before_17_percent_discount():
     )
     turn = calculator.calculate(CalculationConfig(**common, door_opening_mode="turn"))
     tilt = calculator.calculate(CalculationConfig(**common, door_opening_mode="tilt_turn"))
-    assert tilt.total - turn.total == Decimal("971.10")
+    assert tilt.total - turn.total == Decimal("1068.21")
     assert any(i.name == "Скидка 17%" for i in tilt.items)
 
 

@@ -104,7 +104,7 @@ def test_balcony_block_has_two_sash_fixed_plus_tilt_turn_option():
     assert '"Глухое + ПО (2 створки)", "b:set:balcfg:fixed_tilt_turn"' in text
 
 
-def test_balcony_door_mosquito_net_is_fixed_5000():
+def test_balcony_door_mosquito_net_is_fixed_3000():
     from calculator import calculator
     e = calculator.calculate(CalculationConfig(
         construction_type="balcony", profile="58", glass="32",
@@ -115,7 +115,7 @@ def test_balcony_door_mosquito_net_is_fixed_5000():
         window_configuration="fixed_tilt_turn",
         door_opening_mode="turn", door_mosquito=True,
     ))
-    assert any(i.name == "Дверная москитная сетка" and i.price == Decimal("5000.00") for i in e.items)
+    assert any(i.name == "Дверная москитная сетка" and i.price == Decimal("3000.00") for i in e.items)
 
 
 def test_service_glass_has_24_and_32_choices():

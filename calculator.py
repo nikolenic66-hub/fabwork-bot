@@ -29,6 +29,7 @@ from pricing.price_list import (
     BALCONY_DOOR_MOSQUITO_NET,
     BALCONY_DOOR_OPENING_SURCHARGE,
     BALCONY_DISCOUNT_RATE,
+    BALCONY_GLASS_PRICE_FACTOR,
     GLASS_UNIT_PRICE_PER_M2,
     GLASS_PRICE_PER_M2,
     I_GLASS_SURCHARGE_PER_CONSTRUCTION,
@@ -215,6 +216,10 @@ class Calculator:
         subtotal = money(product_subtotal + service_subtotal + i_surcharge)
         total_before_discount = money(subtotal + installation)
         if ct == "balcony":
+            # Для балконного блока применяем подтверждённую корректировку цены
+            # по базовому стеклопакету до скидки 17%.
+            balcony_glass_factor = BALCONY_GLASS_PRICE_FACTOR.get(base_glass_key(c.glass or "32"), Decimal("1.00"))
+            total_before_discount = money(total_before_discount * balcony_glass_factor)
             # Скидка ровно 17% от итоговой цены, уже включающей монтаж 17%.
             discount = money(total_before_discount * BALCONY_DISCOUNT_RATE)
             items.append(EstimateItem("Скидка 17%", -discount))
