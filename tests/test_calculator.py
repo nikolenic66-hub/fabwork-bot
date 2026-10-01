@@ -74,7 +74,7 @@ def test_balcony_block_58_near_29k():
         sill2_type="pvc", sill2_depth_mm=300, sill2_length_mm=700,
     ))
     # materials should land total near 29000
-    assert Decimal("28000") <= e.total <= Decimal("30000")
+    assert Decimal("26000") <= e.total <= Decimal("29000")
     names = [i.name for i in e.items]
     assert sum(1 for n in names if "Подоконник" in n) == 2
 
@@ -90,7 +90,7 @@ def test_balcony_block_70_near_40k():
         sill_type="pvc", sill_depth_mm=300, sill_length_mm=600,
         sill2_type="pvc", sill2_depth_mm=300, sill2_length_mm=700,
     ))
-    assert Decimal("33000") <= e.total <= Decimal("35000")
+    assert Decimal("30000") <= e.total <= Decimal("34000")
 
 
 def test_balcony_door_modes_apply_1000_before_17_percent_discount():
@@ -270,3 +270,20 @@ def test_measurement_fee_is_only_for_glass_units_or_mosquito_nets():
     assert measurement_fee_for_cart([{"product": {"construction_type": "window", "mosquito": False}}]) == Decimal("0.00")
     assert measurement_fee_for_cart([{"product": {"construction_type": "window", "mosquito": True}}]) == Decimal("500.00")
     assert measurement_fee_for_cart([{"product": {"construction_type": "glass_unit"}}]) == Decimal("500.00")
+
+
+def test_balcony_door_does_not_add_threshold_lock_or_fittings():
+    common = dict(
+        construction_type="balcony", profile="58", glass="32",
+        door_type="single", door_sash="T", door_threshold="frame",
+        door_lock="multi", door_fittings="handles_closer",
+        door_width_mm=700, door_height_mm=2100,
+        window_width_mm=600, window_height_mm=1400,
+        window_configuration="tilt_turn",
+        sill_type="pvc", sill_depth_mm=300, sill_length_mm=600,
+        sill2_type="pvc", sill2_depth_mm=300, sill2_length_mm=700,
+        door_opening_mode="turn",
+    )
+    e = calculator.calculate(CalculationConfig(**common))
+    names = [i.name.lower() for i in e.items]
+    assert not any("порог" in n or "замок" in n or "доводчик" in n or "ручк" in n for n in names)

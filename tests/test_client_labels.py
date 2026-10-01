@@ -42,6 +42,26 @@ def test_builder_has_working_back_and_balcony_custom_size():
 def test_balcony_door_ui_has_opening_modes_and_fixed_mosquito_net():
     text = Path(__file__).parents[1].joinpath("handlers/calculation.py").read_text(encoding="utf-8")
     assert '"Поворотная дверь", "b:set:baldoor:turn"' in text
-    assert '"Поворотно-откидная дверь (+1 000 ₽)", "b:set:baldoor:tilt_turn"' in text
-    assert 'b:set:baldoor:mos' in text
-    assert '5 000 ₽' in text
+    assert '"Поворотно-откидная дверь", "b:set:baldoor:tilt_turn"' in text
+    assert 'b:set:baldoor:mos' not in text.split('if screen == "door":', 1)[1].split('if screen == "bal_size":', 1)[0]
+    assert 'Дверная москитная сетка — 5 000 ₽' not in text
+
+
+def test_balcony_door_screen_contains_only_opening_modes_and_mosquito():
+    text = open("handlers/calculation.py", encoding="utf-8").read()
+    assert '("Поворотная дверь", "b:set:baldoor:turn")' in text
+    assert '("Поворотно-откидная дверь", "b:set:baldoor:tilt_turn")' in text
+    assert '+1 000 ₽' not in text.split('if screen == "door":', 1)[1].split('if screen == "bal_size":', 1)[0]
+    assert 'rows.append(("Одностворчатая дверь", "b:set:dtype:single"))' not in text
+    assert 'rows.append(("Стандартная дверь", "b:set:dsash:T"))' not in text
+
+
+def test_balcony_extras_has_separate_sill_sides():
+    text = open("handlers/calculation.py", encoding="utf-8").read()
+    assert 'Подоконник со стороны балкона' in text
+    assert 'Подоконник со стороны квартиры' in text
+    assert 'b:set:sillside:balcony' in text
+    assert 'b:set:sillside:apartment' in text
+    assert 'b:set:silltype:{side}:pvc' in text
+    assert 'b:set:silltype:{side}:danke' in text
+    assert 'b:set:sdepth:{side}:300' in text

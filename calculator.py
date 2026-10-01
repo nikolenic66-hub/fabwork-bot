@@ -267,15 +267,15 @@ class Calculator:
                 p1 = get_sill_price(sill_kind, sill_depth, sill_len_win)
             except ValueError as e:
                 raise PricingError(str(e)) from e
-            items.append(EstimateItem(f"Подоконник внутренний (окно) {sill_depth}×{sill_len_win} мм", p1))
+            items.append(EstimateItem(f"Подоконник со стороны балкона {sill_depth}×{sill_len_win} мм", p1))
             sill2_kind = c.sill2_type or sill_kind
             sill2_depth = c.sill2_depth_mm or sill_depth
-            sill2_len = c.sill2_length_mm or door_w
+            sill2_len = c.sill2_length_mm or win_w
             try:
                 p2 = get_sill_price(sill2_kind, sill2_depth, sill2_len)
             except ValueError as e:
                 raise PricingError(str(e)) from e
-            items.append(EstimateItem(f"Подоконник внутренний (дверь) {sill2_depth}×{sill2_len} мм", p2))
+            items.append(EstimateItem(f"Подоконник со стороны квартиры {sill2_depth}×{sill2_len} мм", p2))
         if getattr(c, "door_mosquito", False):
             items.append(EstimateItem("Дверная москитная сетка", BALCONY_DOOR_MOSQUITO_NET))
         items.extend(self._mosquito_items(c))

@@ -336,6 +336,12 @@ def _label_sill(data: dict) -> str:
     kind = "ПВХ" if data["sill_type"] == "pvc" else "DANKE"
     return f"{kind} {data.get('sill_depth_mm') or '?'} мм"
 
+def _label_sill2(data: dict) -> str:
+    if not data.get("sill2_type"):
+        return "нет"
+    kind = "ПВХ" if data["sill2_type"] == "pvc" else "DANKE"
+    return f"{kind} {data.get('sill2_depth_mm') or '?'} мм"
+
 
 def _friendly_config(cfg: str | None) -> tuple[str, str]:
     return WINDOW_CONFIG_FRIENDLY.get(cfg or "", ("Конфигурация окна", "Настройка уточняется"))
@@ -353,14 +359,20 @@ def _profile_label(profile: str | None) -> str:
 def _extras_summary(data: dict) -> str:
     parts = []
     sill = _label_sill(data)
-    if sill != "нет":
+    sill2 = _label_sill2(data)
+    if data.get("construction_type") == "balcony":
+        if sill != "нет":
+            parts.append(f"подоконник со стороны балкона {sill}")
+        if sill2 != "нет":
+            parts.append(f"подоконник со стороны квартиры {sill2}")
+    elif sill != "нет":
         parts.append(f"подоконник {sill}")
-    if data.get("ebb_width_mm"):
+    if data.get("ebb_width_mm") and data.get("construction_type") != "balcony":
         parts.append(f"отлив {data['ebb_width_mm']} мм")
-    if data.get("mosquito"):
+    if data.get("mosquito") and data.get("construction_type") != "balcony":
         parts.append("москитная сетка")
     if data.get("construction_type") == "balcony" and data.get("door_mosquito"):
-        parts.append("дверная москитная сетка 5 000 ₽")
+        parts.append("дверная москитная сетка")
     if data.get("delivery") == "city":
         parts.append("доставка по городу")
     elif data.get("delivery") == "outside":
@@ -400,7 +412,7 @@ def _defaults_balcony() -> dict:
         "window_sash_count": 1, "window_configuration": "tilt_turn",
         "sash_configuration": "tilt_turn", "sill_type": "pvc", "sill_depth_mm": 300,
         "sill_length_mm": 800, "sill2_type": "pvc", "sill2_depth_mm": 300,
-        "sill2_length_mm": 700, "mosquito": False, "delivery": None,
+        "sill2_length_mm": 800, "mosquito": False, "delivery": None,
     }
 
 
@@ -465,7 +477,7 @@ def _screen_builder(data: dict) -> tuple[str, list[tuple[str, str]]]:
             f"🚪 Дверь: <b>{data.get('door_width_mm')} × {data.get('door_height_mm')} мм</b>\n"
             f"🪟 Открывание окна: <b>{_friendly_config(data.get('window_configuration'))[0]}</b>\n"
             f"🚪 Открывание двери: <b>{'поворотно-откидная' if data.get('door_opening_mode') == 'tilt_turn' else 'поворотная'}</b>\n"
-            f"🚪 Дверная москитная сетка: <b>{'да — 5 000 ₽' if data.get('door_mosquito') else 'нет'}</b>\n"
+            f"🚪 Дверная москитная сетка: <b>{'да' if data.get('door_mosquito') else 'нет'}</b>\n"
             f"🧱 Профиль: <b>{_profile_label(data.get('profile'))}</b> · 🔲 <b>{_label_glass(data.get('glass'))}</b>\n"
             f"⚙️ Дополнительно: {escape(_extras_summary(data))}\n\n"
             f"💰 <b>{live}</b> <i>ориентировочно</i>"
@@ -593,23 +605,56 @@ async def _render_screen(target, state: FSMContext, screen: str, push: bool = Tr
         return await _edit_or_answer(target, "↔️ <b>Сторона открывания</b>", kb([("⬅️ Левое", "b:set:dir:left"), ("➡️ Правое", "b:set:dir:right"), ("⬅️ Назад", "b:back")], cols=2), state, user_id, "dir", push)
     if screen == "extras":
         ct = data.get("construction_type")
-        rows = [
-            ("Без подоконника", "b:set:sill:none"), ("ПВХ-подоконник", "b:set:sill:pvc"), ("Подоконник DANKE", "b:set:sill:danke"),
-            ("Без москитной сетки", "b:set:mos:0"), ("Москитная сетка", "b:set:mos:1"),
-            ("Без доставки", "b:set:del:none"), ("Доставка по городу", "b:set:del:city"), ("Доставка за город", "b:set:del:outside"),
-        ]
+        if ct == "balcony":
+            sill_text = (
+                "Подоконники: <b>с двух сторон</b>\n"
+                f"Со стороны балкона: <b>{escape(_label_sill(data))}</b>\n"
+                f"Со стороны квартиры: <b>{escape(_label_sill2(data))}</b>"
+            )
+            rows = [
+                ("Без подоконников", "b:set:sill:none"),
+                ("Подоконник со стороны балкона", "b:set:sillside:balcony"),
+                ("Подоконник со стороны квартиры", "b:set:sillside:apartment"),
+                ("Без дверной москитной сетки", "b:set:baldoor:nomos"),
+                ("Дверная москитная сетка", "b:set:baldoor:mos"),
+                ("Без доставки", "b:set:del:none"), ("Доставка по городу", "b:set:del:city"), ("Доставка за город", "b:set:del:outside"),
+            ]
+        else:
+            sill_text = f"Подоконник: <b>{escape(_label_sill(data))}</b>"
+            rows = [
+                ("Без подоконника", "b:set:sill:none"), ("ПВХ-подоконник", "b:set:sill:pvc"), ("Подоконник DANKE", "b:set:sill:danke"),
+                ("Без москитной сетки", "b:set:mos:0"), ("Москитная сетка", "b:set:mos:1"),
+                ("Без доставки", "b:set:del:none"), ("Доставка по городу", "b:set:del:city"), ("Доставка за город", "b:set:del:outside"),
+            ]
         if ct not in ("balcony", "balcony_glazing"):
             rows += [("Без отлива", "b:set:ebb:none"), ("Отлив 150 мм", "b:set:ebb:150"), ("Отлив 200 мм", "b:set:ebb:200")]
         rows.append(("⬅️ Назад", "b:back"))
         text = (
             "⚙️ <b>Дополнительно</b>\n\n"
-            f"Подоконник: <b>{escape(_label_sill(data))}</b>\n"
-            f"Отлив: <b>{data.get('ebb_width_mm') or 'нет'}</b>\n"
-            f"Москитная сетка: <b>{'да' if data.get('mosquito') else 'нет'}</b>\n"
+            f"{sill_text}\n"
+            + (f"Отлив: <b>{data.get('ebb_width_mm') or 'нет'}</b>\n" if ct != "balcony" else "")
+            + f"Москитная сетка: <b>{'да' if data.get('mosquito') else 'нет'}</b>\n"
             f"Доставка: <b>{data.get('delivery') or 'нет'}</b>\n\n"
             "Монтаж 17% уже включает демонтаж старых конструкций."
         )
         return await _edit_or_answer(target, text, kb(rows, cols=2), state, user_id, "extras", push)
+    if screen == "silltype":
+        side = data.get("sill_side") or "balcony"
+        side_label = "со стороны балкона" if side == "balcony" else "со стороны квартиры"
+        return await _edit_or_answer(target, f"🪟 <b>Подоконник {side_label}</b>", kb([
+            ("ПВХ-подоконник", f"b:set:silltype:{side}:pvc"),
+            ("Подоконник DANKE", f"b:set:silltype:{side}:danke"),
+            ("Без подоконника", f"b:set:silltype:{side}:none"),
+            ("⬅️ Назад", "b:back")
+        ], cols=1), state, user_id, "silltype", push)
+    if screen in ("sdepth_balcony", "sdepth_apartment"):
+        side = "balcony" if screen == "sdepth_balcony" else "apartment"
+        side_label = "со стороны балкона" if side == "balcony" else "со стороны квартиры"
+        return await _edit_or_answer(target, f"📏 <b>Глубина подоконника {side_label}</b>", kb([
+            ("250 мм", f"b:set:sdepth:{side}:250"), ("300 мм", f"b:set:sdepth:{side}:300"),
+            ("350 мм", f"b:set:sdepth:{side}:350"), ("400 мм", f"b:set:sdepth:{side}:400"),
+            ("⬅️ Назад", "b:back")
+        ], cols=2), state, user_id, screen, push)
     if screen == "sdepth":
         return await _edit_or_answer(target, "📏 <b>Глубина подоконника</b>", kb([
             ("250 мм", "b:set:sdepth:250"), ("300 мм", "b:set:sdepth:300"),
@@ -623,17 +668,16 @@ async def _render_screen(target, state: FSMContext, screen: str, push: bool = Tr
             rows += [(v, f"b:set:dtype:{k}") for k, v in FRIENDLY_DOOR_UI.items()]
             rows += [(v, f"b:set:dsash:{k}") for k, v in FRIENDLY_SASH_UI.items()]
         else:
+            # Для балконного блока в разделе «Дверь» оставляем только два варианта открывания.
+            # Москитная сетка двери настраивается в «Дополнительно».
             rows += [
                 ("Поворотная дверь", "b:set:baldoor:turn"),
-                ("Поворотно-откидная дверь (+1 000 ₽)", "b:set:baldoor:tilt_turn"),
-                (f"Дверная москитная сетка — {'✅ 5 000 ₽' if data.get('door_mosquito') else '5 000 ₽'}", "b:set:baldoor:mos"),
-                ("Без дверной москитной сетки", "b:set:baldoor:nomos"),
+                ("Поворотно-откидная дверь", "b:set:baldoor:tilt_turn"),
             ]
-            rows.append(("Одностворчатая дверь", "b:set:dtype:single"))
-            rows.append(("Стандартная дверь", "b:set:dsash:T"))
-        rows += [(v, f"b:set:dthr:{k}") for k, v in FRIENDLY_THRESHOLD_UI.items()]
-        rows += [(v, f"b:set:dlock:{k}") for k, v in FRIENDLY_LOCK_UI.items()]
-        rows += [(v, f"b:set:dfit:{k}") for k, v in FRIENDLY_FITTINGS_UI.items()]
+        if ct != "balcony":
+            rows += [(v, f"b:set:dthr:{k}") for k, v in FRIENDLY_THRESHOLD_UI.items()]
+            rows += [(v, f"b:set:dlock:{k}") for k, v in FRIENDLY_LOCK_UI.items()]
+            rows += [(v, f"b:set:dfit:{k}") for k, v in FRIENDLY_FITTINGS_UI.items()]
         rows.append(("⬅️ Назад", "b:back"))
         return await _edit_or_answer(target, "🚪 <b>Параметры двери</b>", kb(rows, cols=1), state, user_id, "door", push)
     if screen == "bal_size":
@@ -1099,18 +1143,53 @@ async def edit_extras(q: CallbackQuery, state: FSMContext):
 async def set_sill(q: CallbackQuery, state: FSMContext):
     await q.answer(); kind = q.data.rsplit(":", 1)[1]
     if kind == "none":
-        await state.update_data(sill_type=None, sill_depth_mm=None)
+        await state.update_data(sill_type=None, sill_depth_mm=None, sill2_type=None, sill2_depth_mm=None)
         return await show_builder(q, state, reset_history=True)
     await state.update_data(sill_type=kind)
     await _render_screen(q, state, "sdepth")
 
 
+@router.callback_query(F.data.startswith("b:set:sillside:"))
+async def set_sill_side(q: CallbackQuery, state: FSMContext):
+    await q.answer(); side = q.data.rsplit(":", 1)[1]
+    await state.update_data(sill_side=side)
+    await _render_screen(q, state, "silltype")
+
+
+@router.callback_query(F.data.startswith("b:set:silltype:"))
+async def set_sill_type(q: CallbackQuery, state: FSMContext):
+    await q.answer()
+    _, _, _, side, kind = q.data.split(":", 4)
+    if side == "balcony":
+        if kind == "none":
+            await state.update_data(sill_type=None, sill_depth_mm=None)
+            return await show_builder(q, state, reset_history=True)
+        await state.update_data(sill_type=kind)
+        await _render_screen(q, state, "sdepth_balcony")
+    else:
+        if kind == "none":
+            await state.update_data(sill2_type=None, sill2_depth_mm=None)
+            return await show_builder(q, state, reset_history=True)
+        await state.update_data(sill2_type=kind)
+        await _render_screen(q, state, "sdepth_apartment")
+
+
 @router.callback_query(F.data.startswith("b:set:sdepth:"))
 async def set_sdepth(q: CallbackQuery, state: FSMContext):
-    await q.answer(); depth = int(q.data.rsplit(":", 1)[1]); data = await state.get_data()
-    await state.update_data(sill_depth_mm=depth, sill_length_mm=data.get("window_width_mm") or data.get("width_mm") or 0)
-    if data.get("construction_type") == "balcony":
-        await state.update_data(sill2_type=data.get("sill_type"), sill2_depth_mm=depth, sill2_length_mm=data.get("door_width_mm") or 700)
+    await q.answer()
+    parts = q.data.split(":")
+    data = await state.get_data()
+    if len(parts) == 4:
+        depth = int(parts[3])
+        await state.update_data(sill_depth_mm=depth, sill_length_mm=data.get("window_width_mm") or data.get("width_mm") or 0)
+    else:
+        side, depth_s = parts[3], parts[4]
+        depth = int(depth_s)
+        length = data.get("window_width_mm") or data.get("width_mm") or 800
+        if side == "balcony":
+            await state.update_data(sill_depth_mm=depth, sill_length_mm=length)
+        else:
+            await state.update_data(sill2_depth_mm=depth, sill2_length_mm=length)
     await show_builder(q, state, reset_history=True)
 
 
@@ -1185,7 +1264,7 @@ async def bal_preset(q: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data.startswith("b:set:balpreset:"))
 async def set_bal_preset(q: CallbackQuery, state: FSMContext):
     await q.answer(); dw, dh, ww, wh = map(int, q.data.rsplit(":", 1)[1].split("x"))
-    await state.update_data(door_width_mm=dw, door_height_mm=dh, window_width_mm=ww, window_height_mm=wh, width_mm=ww, height_mm=wh, sill_length_mm=ww, sill2_length_mm=dw)
+    await state.update_data(door_width_mm=dw, door_height_mm=dh, window_width_mm=ww, window_height_mm=wh, width_mm=ww, height_mm=wh, sill_length_mm=ww, sill2_length_mm=ww)
     await show_builder(q, state, reset_history=True)
 
 
@@ -1245,7 +1324,7 @@ async def bal_custom_win_h(m: Message, state: FSMContext):
     err = validate_size(w, value, "window", data.get("window_sash_count") or 1, data.get("window_configuration"))
     if err:
         return await m.answer(f"⚠️ {err}")
-    await state.update_data(window_height_mm=value, height_mm=value, sill_length_mm=w, sill2_length_mm=data.get("door_width_mm") or 700)
+    await state.update_data(window_height_mm=value, height_mm=value, sill_length_mm=w, sill2_length_mm=w)
     await state.set_state(CalculationStates.BUILDER)
     try: await m.delete()
     except Exception: pass
