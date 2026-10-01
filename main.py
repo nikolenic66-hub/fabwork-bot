@@ -56,6 +56,7 @@ def menu():
     b.button(text="📏 Заказать замер", callback_data="calc:measure")
     b.button(text="🛒 Мой расчёт", callback_data="calc:cart_menu")
     b.button(text="📋 Мои заявки", callback_data="nav:history")
+    b.button(text="💬 Связаться с менеджером", callback_data="manager")
     b.button(text="🔧 Сервис и ремонт", callback_data="svc:menu")
     b.button(text="ℹ️ Как это работает", callback_data="help")
     b.adjust(2)

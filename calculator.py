@@ -26,6 +26,8 @@ from pricing.price_list import (
     get_sill_price,
     get_window_price,
     BALCONY_DOOR_MOSQUITO_NET,
+    BALCONY_DOOR_OPENING_SURCHARGE,
+    BALCONY_DISCOUNT_RATE,
     GLASS_UNIT_PRICE_PER_M2,
     GLASS_PRICE_PER_M2,
     I_GLASS_SURCHARGE_PER_CONSTRUCTION,
@@ -142,7 +144,13 @@ class Calculator:
             items.append(EstimateItem("Монтаж стеклопакета", SERVICE_PRICES["install_visit"]))
         items.extend(service_items)
         subtotal = money(product_subtotal + service_subtotal + i_surcharge)
-        return Estimate(items, subtotal, installation, money(subtotal + installation))
+        total_before_discount = money(subtotal + installation)
+        if ct == "balcony":
+            # Скидка ровно 17% от итоговой цены, уже включающей монтаж 17%.
+            discount = money(total_before_discount * BALCONY_DISCOUNT_RATE)
+            items.append(EstimateItem("Скидка 17%", -discount))
+            return Estimate(items, subtotal, installation, money(total_before_discount - discount))
+        return Estimate(items, subtotal, installation, total_before_discount)
 
     def _check_size(self, c: CalculationConfig, w: int, h: int) -> None:
         err = validate_size(
@@ -221,7 +229,9 @@ class Calculator:
             + DOOR_LOCK_PRICE.get(lock, Decimal("0"))
             + DOOR_FITTINGS_PRICE.get(fit, Decimal("0"))
         )
-        door_price = money(parts["door"] * door_area_ratio + door_extra)
+        door_mode = getattr(c, "door_opening_mode", None) or "tilt_turn"
+        door_opening_surcharge = BALCONY_DOOR_OPENING_SURCHARGE.get(door_mode, Decimal("0.00"))
+        door_price = money(parts["door"] * door_area_ratio + door_extra + door_opening_surcharge)
         window_price = money(parts["window"] * window_area_ratio)
         connector_price = money(parts["connector"] * Decimal(max(door_h, win_h)) / Decimal("2100"))
         glass_base = base_glass_key(glass)

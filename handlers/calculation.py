@@ -581,10 +581,10 @@ async def _render_screen(target, state: FSMContext, screen: str, push: bool = Tr
         return await _edit_or_answer(target, "📐 <b>Выберите размер Ш × В</b>", kb(rows, cols=2), state, user_id, "size", push)
     if screen == "glass":
         glass_labels = {
-            "24": "СП 24 мм — 5 500 ₽/м²",
-            "32": "СП 32 мм — 7 000 ₽/м²",
-            "24_i": "СП 24 мм + i с двух сторон — +2 000 ₽",
-            "32_i": "СП 32 мм + i с двух сторон — +2 000 ₽",
+            "24": "СП 24 мм",
+            "32": "СП 32 мм",
+            "24_i": "СП 24 мм + i с двух сторон",
+            "32_i": "СП 32 мм + i с двух сторон",
         }
         rows = [(glass_labels[key], f"b:set:glass:{key}") for key, _ in _available_glasses(data) if key in glass_labels]
         rows.append(("⬅️ Назад", "b:back"))
@@ -616,6 +616,7 @@ async def _render_screen(target, state: FSMContext, screen: str, push: bool = Tr
             ("350 мм", "b:set:sdepth:350"), ("400 мм", "b:set:sdepth:400"), ("⬅️ Назад", "b:back")
         ], cols=2), state, user_id, "sdepth", push)
     if screen == "door":
+        ct = data.get("construction_type")
         rows = []
         if ct != "balcony":
             # Для отдельной двери эти параметры имеют отдельные цены.
@@ -624,7 +625,7 @@ async def _render_screen(target, state: FSMContext, screen: str, push: bool = Tr
         else:
             rows += [
                 ("Поворотная дверь", "b:set:baldoor:turn"),
-                ("Поворотно-откидная дверь", "b:set:baldoor:tilt_turn"),
+                ("Поворотно-откидная дверь (+1 000 ₽)", "b:set:baldoor:tilt_turn"),
                 (f"Дверная москитная сетка — {'✅ 5 000 ₽' if data.get('door_mosquito') else '5 000 ₽'}", "b:set:baldoor:mos"),
                 ("Без дверной москитной сетки", "b:set:baldoor:nomos"),
             ]

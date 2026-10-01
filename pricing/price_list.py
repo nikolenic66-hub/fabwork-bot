@@ -285,6 +285,8 @@ def get_door_price(opening: str, sash: str, threshold: str, lock: str, fittings:
 
 
 BALCONY_DOOR_MOSQUITO_NET = Decimal("5000.00")
+BALCONY_DOOR_OPENING_SURCHARGE = {"turn": Decimal("0.00"), "tilt_turn": Decimal("1000.00")}
+BALCONY_DISCOUNT_RATE = Decimal("0.17")
 
 
 def get_balcony_block_parts(profile: str, window_cfg: str = "tilt_turn") -> dict[str, Decimal]:
