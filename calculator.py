@@ -29,6 +29,7 @@ from pricing.price_list import (
     GLASS_UNIT_PRICE_PER_M2,
     GLASS_PRICE_PER_M2,
     I_GLASS_SURCHARGE_PER_CONSTRUCTION,
+    SERVICE_PRICES,
     money,
     validate_size,
 )
@@ -134,7 +135,11 @@ class Calculator:
             i_surcharge = I_GLASS_SURCHARGE_PER_CONSTRUCTION
             items.append(EstimateItem("Энергосберегающее покрытие i, 2 стороны", i_surcharge))
         # Монтаж 17% считается от конструкции и доп. элементов, но не от доставки и не от фиксированной i-доплаты.
-        installation = Decimal("0.00") if ct == "glass_unit" else calculate_installation(product_subtotal)
+        # Для отдельного стеклопакета монтаж фиксированный — 1 000 ₽,
+        # процентный монтаж 17% к нему не применяется.
+        installation = SERVICE_PRICES["install_visit"] if ct == "glass_unit" else calculate_installation(product_subtotal)
+        if ct == "glass_unit":
+            items.append(EstimateItem("Монтаж стеклопакета", SERVICE_PRICES["install_visit"]))
         items.extend(service_items)
         subtotal = money(product_subtotal + service_subtotal + i_surcharge)
         return Estimate(items, subtotal, installation, money(subtotal + installation))

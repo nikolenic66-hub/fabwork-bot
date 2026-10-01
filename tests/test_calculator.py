@@ -144,10 +144,10 @@ def test_glass_unit_prices_and_i_surcharge():
     plain = calculator.calculate(CalculationConfig(construction_type="glass_unit", width_mm=800, height_mm=1400, glass="24"))
     warm = calculator.calculate(CalculationConfig(construction_type="glass_unit", width_mm=800, height_mm=1400, glass="32"))
     i = calculator.calculate(CalculationConfig(construction_type="glass_unit", width_mm=800, height_mm=1400, glass="32_i"))
-    assert plain.total == Decimal("6160.00")
-    assert warm.total == Decimal("8400.00")
-    assert i.total == Decimal("10400.00")
-    assert i.installation == Decimal("0.00")
+    assert plain.total == Decimal("7160.00")
+    assert warm.total == Decimal("9400.00")
+    assert i.total == Decimal("11400.00")
+    assert i.installation == Decimal("1000.00")
 
 
 def test_i_surcharge_is_exactly_2000_and_not_in_installation_base():
@@ -167,7 +167,7 @@ def test_balcony_glazing_returns_orientir_range():
 def test_service_prices():
     assert service_measure() == Decimal("0.00")
     total, items = service_glass32(1, True, True)
-    assert total == Decimal("8500.00")  # 7000+500+1000
+    assert total == Decimal("9000.00")  # 7500+500+1000
     total24, items24 = service_glass_replace("24", 1, True, True)
     assert total24 == Decimal("7000.00")  # 5500+500+1000
     mosquito_total, mosquito_items = service_mosquito_measure()

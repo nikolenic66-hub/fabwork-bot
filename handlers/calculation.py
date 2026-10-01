@@ -693,6 +693,8 @@ async def _render_estimate(target, state: FSMContext, details: bool = False):
             f"<b>{escape(cfg.short_title())}</b>", "",
         ]
         for item in e.items:
+            if data.get("construction_type") == "glass_unit" and item.name == "Монтаж стеклопакета":
+                continue
             text.append(f"• {escape(item.name)} — <b>{fmt_money(item.price)}</b>")
         text += [
             "", f"Конструкция и доп. элементы: <b>{fmt_money(e.subtotal)}</b>",
@@ -711,11 +713,21 @@ async def _render_estimate(target, state: FSMContext, details: bool = False):
             text.append(f"Стеклопакет: <b>{escape(_label_glass(data.get('glass')))}</b>")
         elif data.get("construction_type") == "balcony":
             text.append(f"Окно: <b>{data.get('window_width_mm')} × {data.get('window_height_mm')} мм</b> · Дверь: <b>{data.get('door_width_mm')} × {data.get('door_height_mm')} мм</b>")
+        if data.get("construction_type") == "glass_unit":
+            text += [
+                f"Дополнительно: <b>{escape(extras)}</b>", "",
+                f"Монтаж стеклопакета: <b>{fmt_money(e.installation)}</b>",
+                "────────────", f"💰 <b>ИТОГО: {fmt_money(e.total)}</b>",
+                "", "📏 <b>Хотите узнать точную стоимость?</b>",
+            ]
+        else:
+            text += [
+                f"Дополнительно: <b>{escape(extras)}</b>", "",
+                f"Монтаж 17% уже включён",
+                "────────────", f"💰 <b>ИТОГО: {fmt_money(e.total)}</b>",
+                "", "📏 <b>Хотите узнать точную стоимость?</b>",
+            ]
         text += [
-            f"Дополнительно: <b>{escape(extras)}</b>", "",
-            f"Монтаж 17% уже включён",
-            "────────────", f"💰 <b>ИТОГО: {fmt_money(e.total)}</b>",
-            "", "📏 <b>Хотите узнать точную стоимость?</b>",
             "Закажите замер — бесплатно. После проверки проёма подтвердим размеры и итоговую цену.",
         ]
     await _edit_or_answer(target, "\n".join(text), kb(rows, cols=2), state, user_id, "estimate", False)

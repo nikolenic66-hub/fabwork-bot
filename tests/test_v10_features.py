@@ -64,7 +64,7 @@ def test_mosquito_measurement_is_500_in_calculation_logic():
 def test_special_measurement_fee_is_500():
     from pricing.price_list import service_mosquito_measure, service_glass32
     assert service_mosquito_measure()[0] == Decimal("500.00")
-    assert service_glass32(1, True, False)[0] == Decimal("7500.00")
+    assert service_glass32(1, True, False)[0] == Decimal("8000.00")
 
 
 def test_history_marks_free_measurement_as_free():
