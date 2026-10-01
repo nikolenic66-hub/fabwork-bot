@@ -56,9 +56,11 @@ def test_regular_measurement_has_no_fee_in_request_flow():
     assert 'measure_label = fmt_money(measure_fee) if measure_fee else "бесплатно"' in text
 
 
-def test_mosquito_measurement_is_500_in_calculation_logic():
+def test_attached_mosquito_measurement_is_free_in_calculation_logic():
     from calculator import measurement_fee_for_cart
-    assert measurement_fee_for_cart([{"product": {"construction_type": "window", "mosquito": True}}]) == Decimal("500.00")
+    assert measurement_fee_for_cart([{"product": {"construction_type": "window", "mosquito": True}}]) == Decimal("0.00")
+    assert measurement_fee_for_cart([{"product": {"construction_type": "balcony", "door_mosquito": True}}]) == Decimal("0.00")
+    assert measurement_fee_for_cart([{"product": {"construction_type": "mosquito_net"}}]) == Decimal("500.00")
 
 
 def test_special_measurement_fee_is_500():
@@ -74,7 +76,7 @@ def test_history_marks_free_measurement_as_free():
 
 def test_service_requests_have_dedupe_protection_and_escaped_manager_fields():
     text = Path(__file__).parents[1].joinpath("handlers", "services.py").read_text(encoding="utf-8")
-    assert "recent_duplicate" in text
+    assert "save_request_atomic" in text
     assert 'safe_name = escape' in text
     assert 'safe_phone = escape' in text
 
@@ -93,8 +95,8 @@ def test_measurement_fee_is_added_to_measure_request_total_in_source():
 
 def test_service_duplicate_is_not_resent_to_manager_in_source():
     text = Path(__file__).parents[1].joinpath("handlers/services.py").read_text(encoding="utf-8")
-    assert "is_new_request = False" in text
-    assert "if cid and is_new_request:" in text
+    assert "created = False" in text
+    assert "if created:" in text
 
 
 def test_balcony_block_has_two_sash_fixed_plus_tilt_turn_option():
@@ -128,3 +130,10 @@ def test_balcony_frame_has_floor_and_slab_options_only():
     assert "Балконная рама от пола до потолка" in BALCONY_GLAZING_TYPES["frame"]["label"]
     assert "Балконная рама от плиты до потолка" in BALCONY_GLAZING_TYPES["frame_slab"]["label"]
     assert "1,3 м" in BALCONY_GLAZING_TYPES["frame_slab"]["label"]
+
+
+def test_service_glass_replacement_uses_square_meters():
+    text = Path(__file__).parents[1].joinpath("handlers/services.py").read_text(encoding="utf-8")
+    assert "svc_glass_width" in text
+    assert "svc_glass_height" in text
+    assert "service_glass_replace(glass, qty, wm, wi, width, height)" in text

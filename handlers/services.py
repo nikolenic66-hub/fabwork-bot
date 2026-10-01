@@ -3,10 +3,12 @@ from __future__ import annotations
 from decimal import Decimal
 import hashlib
 import json
+import logging
 import os
 from html import escape
 
 from aiogram import Bot, F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -25,6 +27,7 @@ from states import ServiceStates
 from storage.db import Database
 
 router = Router(name="services")
+log = logging.getLogger(__name__)
 
 
 def kb(rows: list[tuple[str, str]], cols: int = 2):
@@ -51,7 +54,7 @@ def nav():
 
 
 async def _render_service(target, state: FSMContext, text: str, markup=None):
-    """Единый экран сервиса: редактируем одно сообщение, как и конструктор."""
+    """Render one service screen without hiding Telegram edit errors."""
     data = await state.get_data()
     msg = target.message if isinstance(target, CallbackQuery) else target
     mid = data.get("service_message_id")
@@ -66,8 +69,26 @@ async def _render_service(target, state: FSMContext, text: str, markup=None):
                 reply_markup=markup,
             )
             return
+        except TelegramBadRequest as exc:
+            if "message is not modified" in str(exc).lower():
+                return
+            log.warning("Service message edit rejected: %s", exc)
         except Exception:
-            pass
+            log.exception("Unexpected service message edit failure")
+
+    if isinstance(target, CallbackQuery):
+        try:
+            await msg.edit_text(text, parse_mode="HTML", reply_markup=markup)
+            await state.update_data(service_message_id=msg.message_id, service_chat_id=msg.chat.id)
+            return
+        except TelegramBadRequest as exc:
+            if "message is not modified" in str(exc).lower():
+                await state.update_data(service_message_id=msg.message_id, service_chat_id=msg.chat.id)
+                return
+            log.warning("Initial service callback edit rejected: %s", exc)
+        except Exception:
+            log.exception("Unexpected initial service callback edit failure")
+
     sent = await msg.answer(text, parse_mode="HTML", reply_markup=markup)
     await state.update_data(service_message_id=sent.message_id, service_chat_id=sent.chat.id)
 
@@ -140,18 +161,64 @@ async def svc_install(q: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "svc:glass")
 async def svc_glass(q: CallbackQuery, state: FSMContext):
     await q.answer()
+    await state.set_state(ServiceStates.GLASS_WIDTH)
+    await state.update_data(
+        svc_glass_type="32", svc_glass_qty=1, svc_glass_measure=True,
+        svc_glass_install=True, svc_glass_width=None, svc_glass_height=None,
+    )
+    await _render_service(
+        q, state,
+        "🔲 <b>Замена стеклопакета</b>\n\n"
+        "Укажите ширину стеклопакета в мм (например, <b>600</b>).",
+        kb(nav()),
+    )
+
+
+@router.message(ServiceStates.GLASS_WIDTH)
+async def svc_glass_width(m: Message, state: FSMContext):
+    raw = (m.text or "").strip()
+    try:
+        width = int(raw)
+        if width <= 0 or width > 5000:
+            raise ValueError
+    except Exception:
+        return await m.answer("Введите ширину в мм, например 600.", reply_markup=kb(nav()))
+    await state.update_data(svc_glass_width=width)
+    await state.set_state(ServiceStates.GLASS_HEIGHT)
+    await m.answer("Теперь укажите высоту стеклопакета в мм (например, <b>1200</b>).", parse_mode="HTML", reply_markup=kb(nav()))
+    try:
+        await m.delete()
+    except Exception:
+        pass
+
+
+@router.message(ServiceStates.GLASS_HEIGHT)
+async def svc_glass_height(m: Message, state: FSMContext):
+    raw = (m.text or "").strip()
+    try:
+        height = int(raw)
+        if height <= 0 or height > 5000:
+            raise ValueError
+    except Exception:
+        return await m.answer("Введите высоту в мм, например 1200.", reply_markup=kb(nav()))
+    await state.update_data(svc_glass_height=height)
     await state.set_state(ServiceStates.GLASS_QTY)
-    await state.update_data(svc_glass_type="32", svc_glass_qty=1, svc_glass_measure=True, svc_glass_install=True)
-    await _glass_screen(q, state)
+    await _glass_screen(m, state)
+    try:
+        await m.delete()
+    except Exception:
+        pass
 
 
-async def _glass_screen(q: CallbackQuery, state: FSMContext):
+async def _glass_screen(q, state: FSMContext):
     data = await state.get_data()
     glass = data.get("svc_glass_type") or "32"
     qty = int(data.get("svc_glass_qty") or 1)
     wm = bool(data.get("svc_glass_measure"))
     wi = bool(data.get("svc_glass_install"))
-    total, items = service_glass_replace(glass, qty, wm, wi)
+    width = int(data.get("svc_glass_width") or 1000)
+    height = int(data.get("svc_glass_height") or 1000)
+    total, items = service_glass_replace(glass, qty, wm, wi, width, height)
     lines = "\n".join(f"• {n}: <b>{fmt(p)}</b>" for n, p in items)
     await _render_service(
         q,
@@ -355,36 +422,50 @@ async def svc_phone(m: Message, state: FSMContext):
         f"User: {m.from_user.id if m.from_user else '—'}"
     )
     request_id = None
-    is_new_request = False
+    created = False
     try:
         db = Database(os.getenv("DATABASE_PATH", "/data/bot.db"))
         payload = {"type": "service", "title": title, "items": items}
         dedupe_raw = json.dumps(payload, ensure_ascii=False, sort_keys=True) + "|" + str(data.get("customer_name", "")) + "|" + phone
         dedupe = hashlib.sha256(dedupe_raw.encode("utf-8")).hexdigest()
-        request_id = db.recent_duplicate(m.from_user.id if m.from_user else 0, dedupe)
-        if request_id is None:
-            request_id = db.save_request(
-                m.from_user.id if m.from_user else 0,
-                data.get("customer_name", ""),
-                phone,
-                json.dumps(payload, ensure_ascii=False),
-                str(total),
-                status="new",
-                dedupe_key=dedupe,
-            )
-            is_new_request = True
+        request_id, created = db.save_request_atomic(
+            m.from_user.id if m.from_user else 0,
+            data.get("customer_name", ""),
+            phone,
+            json.dumps(payload, ensure_ascii=False),
+            str(total),
+            status="new",
+            dedupe_key=dedupe,
+        )
     except Exception:
-        pass
+        log.exception("Failed to save service request")
+        await m.answer(
+            "⚠️ Не удалось сохранить заявку на сервис. Попробуйте ещё раз позже.",
+            reply_markup=kb([("🔧 Сервис", "svc:menu"), ("🏠 Меню", "nav:home")]),
+        )
+        return
+
     if request_id:
         text = f"🆕 <b>ЗАЯВКА НА СЕРВИС №{request_id}</b>\n" + text
-    chat_id = os.getenv("MANAGER_CHAT_ID", "0")
-    try:
-        cid = int(chat_id)
-        if cid and is_new_request:
+
+    manager_ok = True
+    if created:
+        try:
+            cid = int(os.getenv("MANAGER_CHAT_ID", "0"))
+            if not cid:
+                raise RuntimeError("MANAGER_CHAT_ID is not configured")
             await m.bot.send_message(cid, text, parse_mode="HTML")
-    except Exception:
-        pass
+        except Exception:
+            manager_ok = False
+            log.exception("Failed to notify manager about service request %s", request_id)
+
     await state.clear()
+    if not manager_ok:
+        await m.answer(
+            f"⚠️ Заявка №{request_id} сохранена, но уведомление менеджеру временно не доставлено.",
+            reply_markup=kb([("🔧 Сервис", "svc:menu"), ("🏠 Меню", "nav:home")]),
+        )
+        return
     await m.answer(
         f"✅ Заявка принята.\n{title}\n💰 {fmt(total)}\nМенеджер свяжется с вами.",
         reply_markup=kb([

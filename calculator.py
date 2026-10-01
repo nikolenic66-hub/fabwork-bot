@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+import re
 
 from models import CalculationConfig, Estimate, EstimateItem
 from pricing.price_list import (
@@ -69,31 +70,95 @@ class PricingError(ValueError):
     pass
 
 
+_HTML_TOKEN_RE = re.compile(r"(<[^>]+>)")
+_HTML_TAG_RE = re.compile(r"<\s*(/?)\s*([A-Za-z][\w:-]*)(?:\s[^>]*)?>")
+_HTML_VOID_TAGS = {"br", "hr"}
+
+
 def split_html_message(text: str, limit: int = 4000) -> list[str]:
-    """Делит Telegram HTML-сообщение по строкам, не разрывая строку с тегами."""
+    """Split Telegram HTML without cutting tags and while preserving formatting.
+
+    Active tags are closed at the end of a chunk and reopened at the beginning
+    of the next chunk, so every returned string is independently valid HTML.
+    """
+    if limit <= 0:
+        raise ValueError("limit must be positive")
     if len(text) <= limit:
         return [text]
+
+    tokens = _HTML_TOKEN_RE.split(text)
     chunks: list[str] = []
-    current: list[str] = []
-    current_len = 0
-    for line in text.split("\n"):
-        extra = len(line) + (1 if current else 0)
-        if current and current_len + extra > limit:
-            chunks.append("\n".join(current))
-            current = []
-            current_len = 0
-        if len(line) > limit:
-            if current:
-                chunks.append("\n".join(current))
-                current = []
-                current_len = 0
-            for start in range(0, len(line), limit):
-                chunks.append(line[start:start + limit])
+    stack: list[tuple[str, str]] = []
+    current = ""
+
+    def opening_prefix() -> str:
+        return "".join(raw for _, raw in stack)
+
+    def closing_suffix() -> str:
+        return "".join(f"</{name}>" for name, _ in reversed(stack))
+
+    def flush() -> None:
+        nonlocal current
+        if current and current != opening_prefix():
+            chunk = current + closing_suffix()
+            if len(chunk) > limit:
+                raise ValueError("HTML tag overhead exceeds message limit")
+            chunks.append(chunk)
+        current = opening_prefix()
+
+    for token in tokens:
+        if not token:
             continue
-        current.append(line)
-        current_len += extra
-    if current:
-        chunks.append("\n".join(current))
+
+        tag_match = _HTML_TAG_RE.fullmatch(token)
+        if tag_match:
+            closing, name = tag_match.groups()
+            lname = name.lower()
+            if closing:
+                if len(current) + len(token) <= limit:
+                    current += token
+                else:
+                    flush()
+                    current += token
+                for index in range(len(stack) - 1, -1, -1):
+                    if stack[index][0] == lname:
+                        del stack[index:]
+                        break
+                continue
+
+            if lname in _HTML_VOID_TAGS or token.rstrip().endswith("/>"):
+                if len(current) + len(token) > limit:
+                    flush()
+                current += token
+                continue
+
+            # Opening tag: reserve room for its matching close tag.
+            prospective_stack = stack + [(lname, token)]
+            prospective_close = "".join(f"</{n}>" for n, _ in reversed(prospective_stack))
+            if len(current) + len(token) + len(prospective_close) > limit and current != opening_prefix():
+                flush()
+            current += token
+            stack.append((lname, token))
+            continue
+
+        # Plain text/entity content. Keep enough room for active closing tags.
+        while token:
+            available = limit - len(current) - len(closing_suffix())
+            if available <= 0:
+                if current != opening_prefix():
+                    flush()
+                    continue
+                raise ValueError("HTML tag overhead exceeds message limit")
+            part, token = token[:available], token[available:]
+            current += part
+            if token:
+                flush()
+
+    if current and current != opening_prefix():
+        chunk = current + closing_suffix()
+        if len(chunk) > limit:
+            raise ValueError("HTML tag overhead exceeds message limit")
+        chunks.append(chunk)
     return chunks or [""]
 
 
@@ -105,7 +170,11 @@ def measurement_fee_for_cart(cart: list[dict]) -> Decimal:
     """
     for item in cart or []:
         product = item.get("product") or {}
-        if product.get("construction_type") == "glass_unit" or bool(product.get("mosquito")):
+        # 500 ₽ — только для ОТДЕЛЬНОЙ услуги/конструкции:
+        # отдельный стеклопакет или отдельная москитная сетка.
+        # Москитки, выбранные как доп. опция окна/двери/балконного блока,
+        # в платный замер не переводят.
+        if product.get("construction_type") in {"glass_unit", "mosquito_net"}:
             return Decimal("500.00")
     return Decimal("0.00")
 

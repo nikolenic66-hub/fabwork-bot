@@ -265,10 +265,12 @@ def test_door_i_surcharge_is_not_in_installation_base():
     assert i.installation == plain.installation
 
 
-def test_measurement_fee_is_only_for_glass_units_or_mosquito_nets():
+def test_measurement_fee_is_only_for_separate_glass_or_mosquito_service():
     assert measurement_fee_for_cart([]) == Decimal("0.00")
     assert measurement_fee_for_cart([{"product": {"construction_type": "window", "mosquito": False}}]) == Decimal("0.00")
-    assert measurement_fee_for_cart([{"product": {"construction_type": "window", "mosquito": True}}]) == Decimal("500.00")
+    assert measurement_fee_for_cart([{"product": {"construction_type": "window", "mosquito": True}}]) == Decimal("0.00")
+    assert measurement_fee_for_cart([{"product": {"construction_type": "balcony", "door_mosquito": True}}]) == Decimal("0.00")
+    assert measurement_fee_for_cart([{"product": {"construction_type": "mosquito_net"}}]) == Decimal("500.00")
     assert measurement_fee_for_cart([{"product": {"construction_type": "glass_unit"}}]) == Decimal("500.00")
 
 
@@ -287,3 +289,37 @@ def test_balcony_door_does_not_add_threshold_lock_or_fittings():
     e = calculator.calculate(CalculationConfig(**common))
     names = [i.name.lower() for i in e.items]
     assert not any("порог" in n or "замок" in n or "доводчик" in n or "ручк" in n for n in names)
+
+
+def test_measurement_fee_ignores_mosquito_as_part_of_construction():
+    from calculator import measurement_fee_for_cart
+    assert measurement_fee_for_cart([{"product": {"construction_type": "window", "mosquito": True}}]) == Decimal("0.00")
+    assert measurement_fee_for_cart([{"product": {"construction_type": "balcony", "door_mosquito": True}}]) == Decimal("0.00")
+    assert measurement_fee_for_cart([{"product": {"construction_type": "mosquito_net"}}]) == Decimal("500.00")
+    assert measurement_fee_for_cart([{"product": {"construction_type": "glass_unit"}}]) == Decimal("500.00")
+
+
+def test_service_glass_replacement_is_area_based():
+    from pricing.price_list import service_glass_replace
+    total, items = service_glass_replace("24", 1, True, True, 600, 1200)
+    assert total == Decimal("5460.00")
+    assert items[0][1] == Decimal("3960.00")
+    total, items = service_glass_replace("32", 1, True, True, 600, 1200)
+    assert total == Decimal("6900.00")
+    assert items[0][1] == Decimal("5400.00")
+
+
+def test_balcony_can_price_two_different_sills():
+    e = calculator.calculate(CalculationConfig(
+        construction_type="balcony", profile="58", glass="32",
+        door_type="single", door_sash="T", door_threshold="frame",
+        door_lock="single", door_fittings="push",
+        door_width_mm=700, door_height_mm=2100,
+        window_width_mm=800, window_height_mm=1400,
+        window_configuration="tilt_turn",
+        sill_type="pvc", sill_depth_mm=300, sill_length_mm=800,
+        sill2_type="danke", sill2_depth_mm=400, sill2_length_mm=800,
+    ))
+    names = [i.name for i in e.items]
+    assert any("Подоконник со стороны балкона 300×800 мм" in n for n in names)
+    assert any("Подоконник со стороны квартиры 400×800 мм" in n for n in names)

@@ -355,15 +355,33 @@ def service_install_visit() -> Decimal:
     return money(SERVICE_PRICES["install_visit"])
 
 
-def service_glass_replace(glass: str = "32", qty: int = 1, with_measure: bool = True, with_install: bool = True) -> tuple[Decimal, list[tuple[str, Decimal]]]:
+def service_glass_replace(
+    glass: str = "32",
+    qty: int = 1,
+    with_measure: bool = True,
+    with_install: bool = True,
+    width_mm: int = 1000,
+    height_mm: int = 1000,
+) -> tuple[Decimal, list[tuple[str, Decimal]]]:
+    """Отдельная замена стеклопакета: цена считается по площади каждого СП."""
     if glass not in {"24", "32"}:
         raise ValueError("Доступны стеклопакеты 24 и 32 мм")
+    if qty < 1 or qty > 20:
+        raise ValueError("Количество стеклопакетов должно быть от 1 до 20")
+    if width_mm <= 0 or height_mm <= 0 or width_mm > 5000 or height_mm > 5000:
+        raise ValueError("Укажите корректные размеры стеклопакета")
     price_key = "glass24_replace" if glass == "24" else "glass32_replace"
-    items = [(f"Замена стеклопакета {glass} мм ×{qty}", money(SERVICE_PRICES[price_key] * qty))]
+    area = (Decimal(width_mm * height_mm) / Decimal("1000000"))
+    unit_price = money(area * SERVICE_PRICES[price_key])
+    product_price = money(unit_price * qty)
+    items = [(
+        f"Замена стеклопакета {glass} мм — {width_mm}×{height_mm} мм, {area:.2f} м² ×{qty}",
+        product_price,
+    )]
     if with_measure:
         items.append(("Замер стеклопакетов", service_special_measure()))
     if with_install:
-        items.append(("Монтаж", SERVICE_PRICES["install_visit"]))
+        items.append(("Монтаж стеклопакета", SERVICE_PRICES["install_visit"]))
     total = money(sum((p for _, p in items), Decimal("0")))
     return total, items
 

@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 from copy import deepcopy
 from decimal import Decimal
 from html import escape
 
 from aiogram import Bot, F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.types import (
     CallbackQuery,
@@ -40,8 +42,10 @@ from pricing.price_list import (
 )
 from states import CalculationStates
 from storage.db import Database
+from handlers.navigation import MAIN_MENU_TEXT, main_menu
 
 router = Router(name="calculation")
+log = logging.getLogger(__name__)
 
 WINDOW_SIZE_PRESETS = {
     1: [(600, 1200), (700, 1200), (800, 1200), (900, 1200), (900, 1400), (1000, 1400)],
@@ -63,8 +67,8 @@ MAX_CART_ITEMS = 10
 FRIENDLY_GLASS = {
     "24": "СП 24 мм",
     "32": "СП 32 мм",
-    "24_i": "СП 24 мм + i (2 стороны, +2 000 ₽)",
-    "32_i": "СП 32 мм + i (2 стороны, +2 000 ₽)",
+    "24_i": "СП 24 мм + i с двух сторон",
+    "32_i": "СП 32 мм + i с двух сторон",
 }
 FRIENDLY_DOOR_UI = {"single": "Одностворчатая дверь", "double": "Двустворчатая дверь"}
 FRIENDLY_SASH_UI = {"T": "Стандартная дверь", "Z": "Усиленная дверь"}
@@ -191,23 +195,18 @@ async def _goto_home(target, state: FSMContext):
     msg = target.message if isinstance(target, CallbackQuery) else target
     try:
         await msg.edit_text(
-            "🏠 <b>Главное меню</b>\n\n"
-            "Рассчитайте ориентировочную стоимость, а если цена подходит — закажите замер.",
+            MAIN_MENU_TEXT,
             parse_mode="HTML",
-            reply_markup=kb([
-                ("🧮 Рассчитать стоимость", "calc:start"),
-                ("📏 Заказать замер", "calc:measure"),
-                ("🛒 Мой расчёт", "calc:cart_menu"),
-                ("📋 Мои заявки", "nav:history"),
-                ("🔧 Сервис", "svc:menu"),
-                ("ℹ️ Как это работает", "nav:help"),
-            ], cols=2),
+            reply_markup=main_menu(),
         )
+    except TelegramBadRequest as exc:
+        if "message is not modified" in str(exc).lower():
+            return
+        log.warning("Could not edit main menu message: %s", exc)
+        await msg.answer(MAIN_MENU_TEXT, parse_mode="HTML", reply_markup=main_menu())
     except Exception:
-        await msg.answer("🏠 <b>Главное меню</b>", parse_mode="HTML", reply_markup=kb([
-            ("🧮 Рассчитать стоимость", "calc:start"), ("📏 Заказать замер", "calc:measure"),
-            ("🛒 Мой расчёт", "calc:cart_menu"), ("📋 Мои заявки", "nav:history"),
-        ], cols=2))
+        log.exception("Unexpected error while opening main menu")
+        await msg.answer(MAIN_MENU_TEXT, parse_mode="HTML", reply_markup=main_menu())
 
 
 async def _edit_or_answer(target, text: str, markup, state: FSMContext, user_id: int, screen: str, push: bool = False):
@@ -220,18 +219,45 @@ async def _edit_or_answer(target, text: str, markup, state: FSMContext, user_id:
     await _persist(state, user_id)
 
     msg = target.message if isinstance(target, CallbackQuery) else target
-    if data.get("builder_message_id"):
+
+    async def edit_current() -> bool:
+        try:
+            await msg.edit_text(text, parse_mode="HTML", reply_markup=markup)
+            await state.update_data(builder_message_id=msg.message_id, builder_chat_id=msg.chat.id)
+            await _persist(state, user_id)
+            return True
+        except TelegramBadRequest as exc:
+            if "message is not modified" in str(exc).lower():
+                await state.update_data(builder_message_id=msg.message_id, builder_chat_id=msg.chat.id)
+                return True
+            log.warning("Builder message edit rejected: %s", exc)
+            return False
+        except Exception:
+            log.exception("Unexpected builder message edit failure")
+            return False
+
+    if isinstance(target, CallbackQuery) and await edit_current():
+        return
+
+    stored_id = data.get("builder_message_id")
+    stored_chat_id = data.get("builder_chat_id") or getattr(msg.chat, "id", None)
+    if stored_id and stored_chat_id and (not isinstance(target, CallbackQuery) or int(stored_id) != int(msg.message_id)):
         try:
             await msg.bot.edit_message_text(
-                chat_id=msg.chat.id,
-                message_id=int(data["builder_message_id"]),
+                chat_id=int(stored_chat_id),
+                message_id=int(stored_id),
                 text=text,
                 parse_mode="HTML",
                 reply_markup=markup,
             )
             return
+        except TelegramBadRequest as exc:
+            if "message is not modified" in str(exc).lower():
+                return
+            log.warning("Stored builder message edit rejected: %s", exc)
         except Exception:
-            pass
+            log.exception("Unexpected stored builder message edit failure")
+
     sent = await msg.answer(text, parse_mode="HTML", reply_markup=markup)
     await state.update_data(builder_message_id=sent.message_id, builder_chat_id=sent.chat.id)
     await _persist(state, user_id)
@@ -633,8 +659,12 @@ async def _render_screen(target, state: FSMContext, screen: str, push: bool = Tr
             "⚙️ <b>Дополнительно</b>\n\n"
             f"{sill_text}\n"
             + (f"Отлив: <b>{data.get('ebb_width_mm') or 'нет'}</b>\n" if ct != "balcony" else "")
-            + f"Москитная сетка: <b>{'да' if data.get('mosquito') else 'нет'}</b>\n"
-            f"Доставка: <b>{data.get('delivery') or 'нет'}</b>\n\n"
+            + (
+                f"Дверная москитная сетка: <b>{'да' if data.get('door_mosquito') else 'нет'}</b>\n"
+                if ct == "balcony"
+                else f"Москитная сетка: <b>{'да' if data.get('mosquito') else 'нет'}</b>\n"
+            )
+            + f"Доставка: <b>{data.get('delivery') or 'нет'}</b>\n\n"
             "Монтаж 17% уже включает демонтаж старых конструкций."
         )
         return await _edit_or_answer(target, text, kb(rows, cols=2), state, user_id, "extras", push)
@@ -900,7 +930,7 @@ async def calc_start(q: CallbackQuery, state: FSMContext):
     await state.clear()
     await state.update_data(cart=cart, current_in_cart=False)
     await _persist(state, q.from_user.id)
-    await show_construction(q.message, state)
+    await show_construction(q, state)
 
 
 @router.callback_query(F.data == "calc:window")
@@ -1244,11 +1274,17 @@ async def set_balcony_door_option(q: CallbackQuery, state: FSMContext):
     value = q.data.rsplit(":", 1)[1]
     if value in {"turn", "tilt_turn"}:
         await state.update_data(door_opening_mode=value)
+        # После выбора возвращаемся прямо в единый конструктор,
+        # чтобы пользователь сразу видел выбранное открывание двери.
+        await show_builder(q, state, reset_history=True)
     elif value == "mos":
         await state.update_data(door_mosquito=True)
+        # Москитная сетка — дополнительная опция балконного блока.
+        # После выбора остаёмся в едином конструкторе, а не на экране двери.
+        await show_builder(q, state, reset_history=True)
     elif value == "nomos":
         await state.update_data(door_mosquito=False)
-    await _render_screen(q, state, "door", push=False)
+        await show_builder(q, state, reset_history=True)
 
 
 @router.callback_query(F.data == "b:edit:bal_size")
@@ -1535,8 +1571,9 @@ async def measure_start(q: CallbackQuery, state: FSMContext):
     await q.answer(); await _restore(state, q.from_user.id)
     # Если есть активный расчёт/корзина, сразу сохраним текущую конструкцию при оформлении.
     await _ensure_current_in_cart(state)
-    special = any((x.get("product") or {}).get("construction_type") == "glass_unit" for x in list((await state.get_data()).get("cart") or []))
-    title = "📏 <b>Замер — 500 ₽</b>" if special else "📏 <b>Бесплатный замер</b>"
+    cart = list((await state.get_data()).get("cart") or [])
+    measure_fee = measurement_fee_for_cart(cart)
+    title = "📏 <b>Замер — 500 ₽</b>" if measure_fee else "📏 <b>Бесплатный замер</b>"
     await state.set_state(CalculationStates.MEASURE_NAME); await _persist(state, q.from_user.id)
     try: await q.message.edit_reply_markup(reply_markup=None)
     except Exception: pass
@@ -1580,23 +1617,53 @@ async def _finish_measure_request(m: Message, state: FSMContext, user_id: int, b
     data = await _restore(state, user_id)
     cart = list(data.get("cart") or [])
     product_total = sum((Decimal(x.get("total", "0")) for x in cart), Decimal("0"))
-    # 500 ₽ только для замера стеклопакетов или москитных сеток.
     measure_fee = measurement_fee_for_cart(cart)
     total = product_total + measure_fee
     payload = {"type": "measure", "cart": cart, "estimate": data.get("estimate") or {}, "measure_fee": str(measure_fee)}
     dedupe = _dedupe(payload, data.get("customer_name", ""), data.get("phone", ""), data.get("address", ""))
-    duplicate = db().recent_duplicate(user_id, dedupe)
-    if duplicate:
-        request_id = duplicate
-    else:
-        request_id = db().save_request(user_id, data.get("customer_name", ""), data.get("phone", ""), json.dumps(payload, ensure_ascii=False), str(total), address=data.get("address", ""), status="measurer", dedupe_key=dedupe)
-        await _notify_manager(bot, _manager_measure_text(request_id, data, cart, total, user_id))
+
+    try:
+        request_id, created = db().save_request_atomic(
+            user_id, data.get("customer_name", ""), data.get("phone", ""),
+            json.dumps(payload, ensure_ascii=False), str(total),
+            address=data.get("address", ""), status="measurer", dedupe_key=dedupe,
+        )
+    except Exception:
+        log.exception("Failed to save measurement request")
+        await m.answer(
+            "⚠️ Не удалось сохранить заявку на замер. Попробуйте ещё раз позже.",
+            reply_markup=reply_cancel_only(),
+        )
+        return
+
+    if created:
+        notified = await _notify_manager(
+            bot, _manager_measure_text(request_id, data, cart, total, user_id, measure_fee)
+        )
         await _notify_manager_controls(bot, request_id)
+        if not notified:
+            db().clear_draft(user_id)
+            await state.clear()
+            await m.answer(
+                f"⚠️ Заявка №{request_id} сохранена, но уведомление менеджеру временно не доставлено.",
+                reply_markup=ReplyKeyboardRemove(),
+            )
+            return
+
     db().clear_draft(user_id)
     await state.clear()
     measure_label = fmt_money(measure_fee) if measure_fee else "бесплатно"
-    await m.answer(f"✅ <b>Заявка на замер принята</b>\n\n№{request_id}\nЗамер: <b>{measure_label}</b>\nКлиентская сумма расчёта: <b>{fmt_money(total)}</b>\n\nМенеджер свяжется с вами.", parse_mode="HTML", reply_markup=ReplyKeyboardRemove())
-    await m.answer("Что дальше?", reply_markup=kb([("🧮 Ещё расчёт", "calc:start"), ("📋 Мои заявки", "nav:history"), ("🏠 Меню", "nav:home")], cols=2))
+    await m.answer(
+        f"✅ <b>Заявка на замер принята</b>\n\n№{request_id}\n"
+        f"Замер: <b>{measure_label}</b>\n"
+        f"Клиентская сумма расчёта: <b>{fmt_money(total)}</b>\n\n"
+        "Менеджер свяжется с вами.",
+        parse_mode="HTML",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+    await m.answer("Что дальше?", reply_markup=kb([
+        ("🧮 Ещё расчёт", "calc:start"), ("📋 Мои заявки", "nav:history"), ("🏠 Меню", "nav:home")
+    ], cols=2))
 
 
 def _dedupe(payload: dict, name: str, phone: str, address: str) -> str:
@@ -1613,25 +1680,57 @@ async def _finish_request(m: Message, state: FSMContext, user_id: int, bot: Bot)
     if not cart and est:
         cart = [{"product": _product_fields(data), "title": est.get("title", "Расчёт"), "total": str(est.get("total", "0")), "items": est.get("items", [])}]
     product_total = sum((Decimal(x.get("total", "0")) for x in cart), Decimal("0"))
-    # 500 ₽ только для замера стеклопакетов или москитных сеток.
     measure_fee = measurement_fee_for_cart(cart)
     total = product_total + measure_fee
     payload = {"cart": cart, "estimate": est, "address": data.get("address", ""), "photo_file_id": data.get("photo_file_id"), "measure_fee": str(measure_fee)}
     dedupe = _dedupe(payload, data.get("customer_name", ""), data.get("phone", ""), data.get("address", ""))
-    duplicate = db().recent_duplicate(user_id, dedupe)
-    if duplicate:
-        request_id = duplicate
-    else:
-        request_id = db().save_request(user_id, data.get("customer_name", ""), data.get("phone", ""), json.dumps(payload, ensure_ascii=False), str(total), address=data.get("address", ""), status="new", dedupe_key=dedupe)
-        await _notify_manager(bot, _manager_order_text(request_id, data.get("customer_name", ""), data.get("phone", ""), data.get("address", ""), str(total), cart, user_id, measure_fee))
+
+    try:
+        request_id, created = db().save_request_atomic(
+            user_id, data.get("customer_name", ""), data.get("phone", ""),
+            json.dumps(payload, ensure_ascii=False), str(total),
+            address=data.get("address", ""), status="new", dedupe_key=dedupe,
+        )
+    except Exception:
+        log.exception("Failed to save order request")
+        await m.answer(
+            "⚠️ Не удалось сохранить заявку. Попробуйте ещё раз позже.",
+            reply_markup=reply_cancel_only(),
+        )
+        return
+
+    if created:
+        notified = await _notify_manager(
+            bot, _manager_order_text(
+                request_id, data.get("customer_name", ""), data.get("phone", ""),
+                data.get("address", ""), str(total), cart, user_id, measure_fee
+            )
+        )
         await _notify_manager_controls(bot, request_id)
         if data.get("photo_file_id"):
             await _notify_manager(bot, f"📷 Фото проёма к заявке №{request_id}", data.get("photo_file_id"))
+        if not notified:
+            db().clear_draft(user_id)
+            await state.clear()
+            await m.answer(
+                f"⚠️ Заявка №{request_id} сохранена, но уведомление менеджеру временно не доставлено.",
+                reply_markup=ReplyKeyboardRemove(),
+            )
+            return
+
     db().clear_draft(user_id)
     await state.clear()
     measure_label = fmt_money(measure_fee) if measure_fee else "бесплатно"
-    await m.answer(f"✅ <b>Заявка принята</b>\n\n№{request_id}\nРасчёт: <b>{fmt_money(product_total)}</b>\nЗамер: <b>{measure_label}</b>\nИтого заявки: <b>{fmt_money(total)}</b>\n\nМенеджер свяжется с вами.", parse_mode="HTML", reply_markup=ReplyKeyboardRemove())
-    await m.answer("Что дальше?", reply_markup=kb([("🧮 Ещё расчёт", "calc:start"), ("📋 Мои заявки", "nav:history"), ("🏠 Меню", "nav:home")], cols=2))
+    await m.answer(
+        f"✅ <b>Заявка принята</b>\n\n№{request_id}\n"
+        f"Расчёт: <b>{fmt_money(product_total)}</b>\nЗамер: <b>{measure_label}</b>\n"
+        f"Итого заявки: <b>{fmt_money(total)}</b>\n\nМенеджер свяжется с вами.",
+        parse_mode="HTML",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+    await m.answer("Что дальше?", reply_markup=kb([
+        ("🧮 Ещё расчёт", "calc:start"), ("📋 Мои заявки", "nav:history"), ("🏠 Меню", "nav:home")
+    ], cols=2))
 
 
 def _product_manager_details(item: dict) -> str:
@@ -1665,28 +1764,30 @@ def _manager_order_text(request_id: int, name: str, phone: str, address: str, to
     return "\n".join(lines)
 
 
-def _manager_measure_text(request_id: int, data: dict, cart: list[dict], total: Decimal, user_id: int) -> str:
-    return _manager_order_text(request_id, data.get("customer_name", ""), data.get("phone", ""), data.get("address", ""), str(total), cart, user_id, Decimal("0.00"))
+def _manager_measure_text(request_id: int, data: dict, cart: list[dict], total: Decimal, user_id: int, measure_fee: Decimal) -> str:
+    return _manager_order_text(request_id, data.get("customer_name", ""), data.get("phone", ""), data.get("address", ""), str(total), cart, user_id, measure_fee)
 
 
-async def _notify_manager_controls(bot: Bot, request_id: int) -> None:
+async def _notify_manager_controls(bot: Bot, request_id: int) -> bool:
     try:
         cid = int(os.getenv("MANAGER_CHAT_ID", "0"))
     except ValueError:
-        return
+        log.error("Invalid MANAGER_CHAT_ID")
+        return False
     if not cid:
-        return
+        log.error("MANAGER_CHAT_ID is not configured")
+        return False
     try:
         await bot.send_message(cid, "Управление статусом заявки:", reply_markup=_manager_status_keyboard(request_id))
+        return True
     except Exception:
-        pass
+        log.exception("Failed to send manager controls for request %s", request_id)
+        return False
 
 
 async def _send_manager_text(bot: Bot, chat_id: int, text: str, photo_file_id: str | None = None) -> None:
     chunks = split_html_message(text)
     if photo_file_id:
-        # Подпись фото держим короткой: основной HTML-текст отправляется отдельно,
-        # поэтому длинное имя/адрес не может оборвать HTML-тег в caption.
         await bot.send_photo(chat_id, photo_file_id, caption="📷 Фото к заявке", parse_mode="HTML")
         for chunk in chunks:
             await bot.send_message(chat_id, chunk, parse_mode="HTML")
@@ -1695,17 +1796,21 @@ async def _send_manager_text(bot: Bot, chat_id: int, text: str, photo_file_id: s
             await bot.send_message(chat_id, chunk, parse_mode="HTML")
 
 
-async def _notify_manager(bot: Bot, text: str, photo_file_id: str | None = None) -> None:
+async def _notify_manager(bot: Bot, text: str, photo_file_id: str | None = None) -> bool:
     try:
         cid = int(os.getenv("MANAGER_CHAT_ID", "0"))
     except ValueError:
-        return
+        log.error("Invalid MANAGER_CHAT_ID")
+        return False
     if not cid:
-        return
+        log.error("MANAGER_CHAT_ID is not configured")
+        return False
     try:
         await _send_manager_text(bot, cid, text, photo_file_id)
+        return True
     except Exception:
-        pass
+        log.exception("Failed to notify manager")
+        return False
 
 
 def _manager_status_keyboard(request_id: int):

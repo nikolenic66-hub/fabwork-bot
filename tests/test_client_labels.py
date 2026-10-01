@@ -65,3 +65,17 @@ def test_balcony_extras_has_separate_sill_sides():
     assert 'b:set:silltype:{side}:pvc' in text
     assert 'b:set:silltype:{side}:danke' in text
     assert 'b:set:sdepth:{side}:300' in text
+
+
+def test_balcony_door_and_door_mosquito_return_to_builder():
+    text = open("handlers/calculation.py", encoding="utf-8").read()
+    block = text.split('async def set_balcony_door_option', 1)[1].split('@router.callback_query', 1)[0]
+    assert 'await show_builder(q, state, reset_history=True)' in block
+    assert 'await _render_screen(q, state, "door", push=False)' not in block
+    assert 'await _render_screen(q, state, "extras", push=False)' not in block
+
+
+def test_balcony_extras_label_door_mosquito_separately():
+    text = open("handlers/calculation.py", encoding="utf-8").read()
+    extras = text.split('if screen == "extras":', 1)[1].split('if screen == "silltype":', 1)[0]
+    assert 'Дверная москитная сетка:' in extras

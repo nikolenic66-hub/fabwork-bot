@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 import os
 import threading
+from html import escape
 
 from flask import Flask, jsonify
 from dotenv import load_dotenv
@@ -11,10 +14,16 @@ from aiogram import Bot, Dispatcher, Router, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.filters import CommandStart, Command
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import (
+    Message, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove,
+)
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.context import FSMContext
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+
+from handlers.navigation import MAIN_MENU_TEXT, main_menu
+from states import ManagerStates
+from storage.db import Database
 
 from handlers.calculation import router as calculation_router
 from handlers.services import router as services_router
@@ -51,16 +60,31 @@ router = Router(name="main")
 
 
 def menu():
-    b = InlineKeyboardBuilder()
-    b.button(text="🧮 Рассчитать стоимость", callback_data="calc:start")
-    b.button(text="📏 Заказать замер", callback_data="calc:measure")
-    b.button(text="🛒 Мой расчёт", callback_data="calc:cart_menu")
-    b.button(text="📋 Мои заявки", callback_data="nav:history")
-    b.button(text="💬 Связаться с менеджером", callback_data="manager")
-    b.button(text="🔧 Сервис и ремонт", callback_data="svc:menu")
-    b.button(text="ℹ️ Как это работает", callback_data="help")
-    b.adjust(2)
-    return b.as_markup()
+    return main_menu()
+
+
+def manager_reply_keyboard():
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="❌ Отмена"), KeyboardButton(text="🏠 Меню")]],
+        resize_keyboard=True,
+        one_time_keyboard=True,
+    )
+
+
+async def _show_main_menu_after_reply(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    sent = await message.answer(
+        MAIN_MENU_TEXT,
+        parse_mode="HTML",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+    # ReplyKeyboardRemove действует на чат, после чего то же самое сообщение
+    # превращаем в обычное главное меню с inline-кнопками.
+    try:
+        await sent.edit_reply_markup(reply_markup=main_menu())
+    except Exception:
+        log.exception("Failed to attach inline main menu after removing reply keyboard")
+
 
 
 @router.message(CommandStart())
@@ -89,9 +113,21 @@ async def help_cmd(event: Message | CallbackQuery):
     )
     if isinstance(event, CallbackQuery):
         await event.answer()
-        await event.message.answer(text, reply_markup=menu())
+        await event.message.edit_text(text, parse_mode="HTML", reply_markup=menu())
     else:
-        await event.answer(text, reply_markup=menu())
+        await event.answer(text, parse_mode="HTML", reply_markup=menu())
+
+
+@router.message(F.text.in_({"❌ Отмена", "Отмена", "❌", "cancel"}))
+async def reply_cancel(m: Message, state: FSMContext):
+    """Cancel any active form and return to the single main-menu message."""
+    await _show_main_menu_after_reply(m, state)
+
+
+@router.message(F.text.in_({"🏠 Меню", "Меню", "home", "в меню"}))
+async def reply_menu(m: Message, state: FSMContext):
+    """Return from any text-input step to the single main-menu message."""
+    await _show_main_menu_after_reply(m, state)
 
 
 @router.message(Command("cancel"))
@@ -102,13 +138,124 @@ async def cancel_cmd(m: Message, state: FSMContext):
 
 
 @router.callback_query(F.data == "manager")
-async def manager_cb(q: CallbackQuery):
+async def manager_cb(q: CallbackQuery, state: FSMContext):
     await q.answer()
+    await state.set_state(ManagerStates.NAME)
+    await state.update_data(manager_source="main_menu")
     await q.message.edit_text(
-        "💬 <b>Связь с менеджером</b>\n\n"
-        "Напишите вопрос, отправьте размеры или фото объекта — менеджер поможет сделать предварительный расчёт и ответит в рабочее время.",
-        parse_mode="HTML", reply_markup=menu(),
+        "💬 <b>Заявка менеджеру</b>\n\nКак вас зовут?",
+        parse_mode="HTML",
+        reply_markup=None,
     )
+    await q.message.answer(
+        "Введите имя.",
+        reply_markup=manager_reply_keyboard(),
+    )
+
+
+@router.message(ManagerStates.NAME)
+async def manager_name(m: Message, state: FSMContext):
+    if m.text and m.text.strip() in {"❌ Отмена", "Отмена", "❌", "cancel", "🏠 Меню", "Меню", "home", "в меню"}:
+        return await _show_main_menu_after_reply(m, state)
+    name = (m.text or "").strip()
+    if len(name) < 2:
+        return await m.answer("Введите имя.", reply_markup=manager_reply_keyboard())
+    await state.update_data(customer_name=name)
+    await state.set_state(ManagerStates.PHONE)
+    await m.answer("Телефон — кнопкой или текстом:", reply_markup=ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="📱 Отправить номер", request_contact=True)], [KeyboardButton(text="❌ Отмена"), KeyboardButton(text="🏠 Меню")]],
+        resize_keyboard=True,
+        one_time_keyboard=True,
+    ))
+
+
+async def _finish_manager_lead(m: Message, state: FSMContext, phone: str):
+    data = await state.get_data()
+    user_id = m.from_user.id if m.from_user else 0
+    name = data.get("customer_name", "")
+    username = getattr(m.from_user, "username", None) if m.from_user else None
+    profile = f"tg://user?id={user_id}" if user_id else ""
+    payload = {
+        "type": "manager_contact",
+        "source": data.get("manager_source", "main_menu"),
+        "telegram_username": username or "",
+        "telegram_profile": profile,
+    }
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True) + "|" + name + "|" + phone
+    dedupe = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    database = Database(os.getenv("DATABASE_PATH", "/data/bot.db"))
+    try:
+        request_id, created = database.save_request_atomic(
+            user_id, name, phone, json.dumps(payload, ensure_ascii=False), "0.00",
+            status="new", dedupe_key=dedupe,
+        )
+    except Exception:
+        log.exception("Failed to save manager contact request")
+        await m.answer(
+            "⚠️ Не удалось сохранить заявку. Попробуйте ещё раз позже.",
+            reply_markup=manager_reply_keyboard(),
+        )
+        return
+
+    try:
+        manager_id = int(os.getenv("MANAGER_CHAT_ID", "0") or 0)
+    except ValueError:
+        manager_id = 0
+        log.exception("Invalid MANAGER_CHAT_ID")
+    if created:
+        if not manager_id:
+            log.error("MANAGER_CHAT_ID is not configured")
+            await state.clear()
+            await m.answer(
+                f"⚠️ Заявка №{request_id} сохранена, но уведомление менеджеру временно не доставлено.",
+                reply_markup=ReplyKeyboardRemove(),
+            )
+            return
+        username_text = f"@{username}" if username else "не указан"
+        safe_name = escape(name)
+        safe_phone = escape(phone)
+        manager_text = (
+            f"💬 <b>ЗАЯВКА МЕНЕДЖЕРУ №{request_id}</b>\n\n"
+            f"Источник: <b>Кнопка «Связаться с менеджером»</b>\n"
+            f"👤 <b>{safe_name}</b>\n"
+            f"Телефон: <b>{safe_phone}</b>\n"
+            f"Telegram: {escape(username_text)}\n"
+            f"Профиль: <a href=\"{profile}\">Открыть профиль</a>"
+        )
+        try:
+            await m.bot.send_message(manager_id, manager_text, parse_mode="HTML")
+        except Exception:
+            log.exception("Failed to notify manager about request %s", request_id)
+            await m.answer(
+                "⚠️ Заявка сохранена, но уведомление менеджеру временно не доставлено. "
+                "Менеджер сможет увидеть её в списке заявок.",
+                reply_markup=ReplyKeyboardRemove(),
+            )
+            await state.clear()
+            return
+
+    await state.clear()
+    await m.answer(
+        "Спасибо! <b>Менеджер свяжется с вами</b> в рабочее время.",
+        parse_mode="HTML",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+    await m.answer("Что дальше?", reply_markup=menu())
+
+
+@router.message(ManagerStates.PHONE, F.contact)
+async def manager_phone_contact(m: Message, state: FSMContext):
+    await _finish_manager_lead(m, state, m.contact.phone_number)
+
+
+@router.message(ManagerStates.PHONE)
+async def manager_phone_text(m: Message, state: FSMContext):
+    if m.text and m.text.strip() in {"❌ Отмена", "Отмена", "❌", "cancel", "🏠 Меню", "Меню", "home", "в меню"}:
+        return await _show_main_menu_after_reply(m, state)
+    digits = "".join(ch for ch in (m.text or "") if ch.isdigit())
+    if len(digits) < 10:
+        return await m.answer("Нужен номер из 10+ цифр.", reply_markup=manager_reply_keyboard())
+    await _finish_manager_lead(m, state, (m.text or "").strip())
 
 
 @router.callback_query(F.data == "history")

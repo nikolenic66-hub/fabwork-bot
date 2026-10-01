@@ -39,8 +39,15 @@ class HistoryStates(StatesGroup):
 
 class ServiceStates(StatesGroup):
     MENU = State()
+    GLASS_WIDTH = State()
+    GLASS_HEIGHT = State()
     GLASS_QTY = State()
     ADJUST = State()
     SEAL_METERS = State()
+    NAME = State()
+    PHONE = State()
+
+
+class ManagerStates(StatesGroup):
     NAME = State()
     PHONE = State()

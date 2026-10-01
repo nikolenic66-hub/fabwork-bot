@@ -33,6 +33,56 @@ class Database:
                 c.execute("ALTER TABLE requests ADD COLUMN address TEXT")
             if "dedupe_key" not in cols:
                 c.execute("ALTER TABLE requests ADD COLUMN dedupe_key TEXT")
+            # Старые версии могли создать одинаковые заявки до появления
+            # атомарной защиты. Оставляем последнюю запись каждой пары
+            # (user_id, dedupe_key), затем ставим уникальный частичный индекс.
+            c.execute(
+                "DELETE FROM requests "
+                "WHERE dedupe_key IS NOT NULL AND dedupe_key <> '' "
+                "AND id NOT IN ("
+                "SELECT MAX(id) FROM requests "
+                "WHERE dedupe_key IS NOT NULL AND dedupe_key <> '' "
+                "GROUP BY user_id, dedupe_key"
+                ")"
+            )
+            c.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_requests_user_dedupe_unique "
+                "ON requests(user_id, dedupe_key) WHERE dedupe_key <> ''"
+            )
+            c.execute("CREATE INDEX IF NOT EXISTS idx_requests_user ON requests(user_id)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_requests_created ON requests(created_at)")
+
+    def save_request_atomic(
+        self,
+        user_id: int,
+        name: str,
+        phone: str,
+        config: str,
+        total: str,
+        address: str = "",
+        status: str = "new",
+        dedupe_key: str = "",
+    ) -> tuple[int, bool]:
+        """Insert a request atomically and return (request_id, created)."""
+        with sqlite3.connect(self.path, timeout=30) as c:
+            try:
+                cur = c.execute(
+                    "INSERT INTO requests(user_id,name,phone,config,total,status,address,dedupe_key) "
+                    "VALUES(?,?,?,?,?,?,?,?)",
+                    (user_id, name, phone, config, total, status, address, dedupe_key),
+                )
+                return int(cur.lastrowid), True
+            except sqlite3.IntegrityError:
+                if not dedupe_key:
+                    raise
+                row = c.execute(
+                    "SELECT id FROM requests WHERE user_id=? AND dedupe_key=? "
+                    "ORDER BY id DESC LIMIT 1",
+                    (user_id, dedupe_key),
+                ).fetchone()
+                if row is None:
+                    raise
+                return int(row[0]), False
 
     def save_request(
         self,
@@ -45,13 +95,10 @@ class Database:
         status: str = "new",
         dedupe_key: str = "",
     ) -> int:
-        with sqlite3.connect(self.path) as c:
-            cur = c.execute(
-                "INSERT INTO requests(user_id,name,phone,config,total,status,address,dedupe_key) "
-                "VALUES(?,?,?,?,?,?,?,?)",
-                (user_id, name, phone, config, total, status, address, dedupe_key),
-            )
-            return int(cur.lastrowid)
+        request_id, _ = self.save_request_atomic(
+            user_id, name, phone, config, total, address, status, dedupe_key
+        )
+        return request_id
 
     def recent_duplicate(self, user_id: int, dedupe_key: str, seconds: int = 900) -> int | None:
         if not dedupe_key:
