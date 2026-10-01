@@ -151,6 +151,16 @@ def test_i_surcharge_is_exactly_2000_and_not_in_installation_base():
     assert i.installation == plain.installation
 
 
+def test_p_balcony_frame_returns_orientir_range():
+    from pricing.price_list import get_balcony_glazing_package, BALCONY_GLAZING_TYPES
+    label = BALCONY_GLAZING_TYPES["p_balcony_frame"]["label"]
+    assert label.startswith("П-образная балконная рама от пола до потолка")
+    assert "высота ≈ 2,5 м" in label
+    low, high = get_balcony_glazing_package("p_balcony_frame", "58")
+    assert low == Decimal("65000.00")
+    assert high == Decimal("80000.00")
+
+
 def test_balcony_glazing_returns_orientir_range():
     from pricing.price_list import get_balcony_glazing_package
     low, high = get_balcony_glazing_package("p_shape", "58")
