@@ -138,16 +138,16 @@ I_GLASS_SURCHARGE_PER_CONSTRUCTION = Decimal("2000")
 BALCONY_BLOCK_BASE = {
     # Снижено примерно на 7 000 ₽ по базе конструкции относительно прежнего прайса.
     "58": {
-        "door": Decimal("4500"),
-        "window_fixed": Decimal("2000"),
-        "window_tilt_turn": Decimal("3000"),
-        "connector": Decimal("500"),
+        "door": Decimal("3375.00"),
+        "window_fixed": Decimal("1500.00"),
+        "window_tilt_turn": Decimal("2250.00"),
+        "connector": Decimal("375.00"),
     },
     "70": {
-        "door": Decimal("8000"),
-        "window_fixed": Decimal("3500"),
-        "window_tilt_turn": Decimal("4500"),
-        "connector": Decimal("700"),
+        "door": Decimal("6000.00"),
+        "window_fixed": Decimal("2625.00"),
+        "window_tilt_turn": Decimal("3375.00"),
+        "connector": Decimal("525.00"),
     },
 }
 
@@ -162,6 +162,23 @@ BALCONY_GLAZING_PACKAGE = {
 
 GLASS_UNIT_PRICE_PER_M2 = {"24": Decimal("5500"), "32": Decimal("7500")}
 
+
+# Входные двери ПВХ — 6 стандартных комплектаций из внешней программы Dealer.
+# Цены уже с монтажом 17%; произвольные размеры клиенту не предлагаются.
+ENTRY_DOOR_STANDARDS = {
+    "900x2100": {"width": 900, "height": 2100, "label": "900 × 2100 мм", "type": "Одностворчатая", "final": Decimal("42889.97")},
+    "1000x2100": {"width": 1000, "height": 2100, "label": "1000 × 2100 мм", "type": "Одностворчатая", "final": Decimal("44300.00")},
+    "1100x2100": {"width": 1100, "height": 2100, "label": "1100 × 2100 мм", "type": "Одностворчатая", "final": Decimal("44315.00")},
+    "1300x2100": {"width": 1300, "height": 2100, "label": "1300 × 2100 мм", "type": "Двустворчатая, штульповая", "final": Decimal("60000.00")},
+    "1400x2100": {"width": 1400, "height": 2100, "label": "1400 × 2100 мм", "type": "Двустворчатая, штульповая", "final": Decimal("62000.00")},
+    "1600x2100": {"width": 1600, "height": 2100, "label": "1600 × 2100 мм", "type": "Двустворчатая, штульповая", "final": Decimal("64486.67")},
+}
+
+def get_entry_door_standard(key: str) -> dict:
+    try:
+        return ENTRY_DOOR_STANDARDS[key].copy()
+    except KeyError as exc:
+        raise ValueError("Выберите стандартную входную дверь") from exc
 
 # Двери ПВХ — ориентировочная клиентская база.
 DOOR_PRICES = {
@@ -202,7 +219,7 @@ SERVICE_PRICES = {
     "special_measure": Decimal("500.00"),   # замер москитных сеток / стеклопакетов
     "install_visit": Decimal("1000.00"),    # выезд на монтаж / монтажные работы (минимум)
     "glass24_replace": Decimal("5500.00"),  # замена стеклопакета 24 мм (1 шт)
-    "glass32_replace": Decimal("7000.00"),  # замена стеклопакета 32 мм (1 шт)
+    "glass32_replace": Decimal("7500.00"),  # замена стеклопакета 32 мм (1 шт)
     "adjust_visit": Decimal("1000.00"),     # выезд мастера на регулировку
     "adjust_window": Decimal("300.00"),     # регулировка 1 окна
     "adjust_door": Decimal("500.00"),       # регулировка 1 двери

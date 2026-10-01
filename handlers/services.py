@@ -78,7 +78,7 @@ def menu_text() -> str:
         "📏 Замер окон, дверей и балконных блоков — <b>бесплатно</b>\n"
         f"🦟 Замер москитных сеток — <b>{fmt(SERVICE_PRICES['special_measure'])}</b>\n"
         f"🛠 Монтаж — <b>{fmt(SERVICE_PRICES['install_visit'])}</b>\n"
-        f"🔲 Замена стеклопакета: 24 мм — <b>{fmt(SERVICE_PRICES['glass24_replace'])}</b> / шт; 32 мм — <b>{fmt(SERVICE_PRICES['glass32_replace'])}</b> / шт\n"
+        "🔲 <b>Замена стеклопакета</b> — выберите СП 24 или СП 32 мм; стоимость рассчитывается по площади\n"
         f"📏 Замер стеклопакета — <b>{fmt(SERVICE_PRICES['special_measure'])}</b>\n"
         f"⚙️ Регулировка: выезд <b>{fmt(SERVICE_PRICES['adjust_visit'])}</b>\n"
         f"    окно <b>{fmt(SERVICE_PRICES['adjust_window'])}</b> · дверь <b>{fmt(SERVICE_PRICES['adjust_door'])}</b>\n"
@@ -156,7 +156,7 @@ async def _glass_screen(q: CallbackQuery, state: FSMContext):
     await _render_service(
         q,
         state,
-        f"🔲 <b>Замена стеклопакета {glass} мм</b>\n\n{lines}\n\n💰 <b>{fmt(total)}</b>",
+        f"🔲 <b>Замена стеклопакета {glass} мм</b>\n\nВыберите тип стеклопакета и дополнительные услуги.\n\n💰 <b>{fmt(total)}</b>",
         kb([
             ("СП 24 мм" + (" ✅" if glass == "24" else ""), "svc:g:type:24"),
             ("СП 32 мм" + (" ✅" if glass == "32" else ""), "svc:g:type:32"),

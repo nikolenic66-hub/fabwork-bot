@@ -22,6 +22,7 @@ from pricing.price_list import (
     get_balcony_glazing_package,
     get_connector_price,
     get_door_price,
+    get_entry_door_standard,
     get_ebb_price,
     get_sill_price,
     get_window_price,
@@ -267,44 +268,17 @@ class Calculator:
         return items
 
     def _door_items(self, c: CalculationConfig) -> list[EstimateItem]:
-        if not c.width_mm or not c.height_mm or c.width_mm <= 0 or c.height_mm <= 0:
-            raise PricingError("Укажите корректные размеры двери")
-        self._check_size(c, c.width_mm, c.height_mm)
-        opening = c.door_type or c.opening
-        sash = c.door_sash
-        threshold = c.door_threshold
-        lock = c.door_lock
-        fittings = c.door_fittings
-        glass = c.glass or "32"
-        if not all([opening, sash, threshold, lock, fittings]):
-            raise PricingError("Не заполнены параметры двери")
+        key = c.door_standard or (f"{c.width_mm}x{c.height_mm}" if c.width_mm and c.height_mm else None)
         try:
-            price = get_door_price(opening, sash, threshold, lock, fittings, glass)
+            standard = get_entry_door_standard(key or "")
         except ValueError as e:
             raise PricingError(str(e)) from e
-        base_glass = base_glass_key(glass)
-        if base_glass not in GLASS_PRICE_PER_M2:
-            raise PricingError("Доступны только стеклопакеты 24 и 32 мм")
-        price += money((Decimal(c.width_mm * c.height_mm) / Decimal("1000000")) * GLASS_PRICE_PER_M2[base_glass])
-        # i-доплата учитывается единообразно в общем калькуляторе,
-        # чтобы она не попадала в базу, к которой применяется монтаж 17%.
-        price = money(price)
-        direction = ""
-        if c.opening_direction:
-            direction = f", {'левое' if c.opening_direction == 'left' else 'правое'} открывание"
-        parts = [
-            f"Дверь ПВХ {c.width_mm}×{c.height_mm} мм, 70 мм",
-            FRIENDLY_DOOR.get(opening, opening),
-            FRIENDLY_SASH.get(sash, sash),
-            FRIENDLY_THRESHOLD.get(threshold, threshold),
-            FRIENDLY_LOCK.get(lock, lock),
-            FRIENDLY_FITTINGS.get(fittings, fittings),
-            FRIENDLY_GLASS.get(glass, glass) + direction,
-        ]
-        items = [EstimateItem(", ".join(parts), price)]
-        items.extend(self._sill_items(c))
-        items.extend(self._mosquito_items(c))
-        return items
+        final_price = money(standard["final"])
+        base_price = money(final_price / Decimal("1.17"))
+        return [EstimateItem(
+            f"Входная дверь ПВХ {standard['label']}, профиль 70 мм, {standard['type']}",
+            base_price,
+        )]
 
     def _nonstandard_items(self, c: CalculationConfig) -> list[EstimateItem]:
         if not c.scheme_key or c.scheme_key not in NONSTANDARD_SCHEMES:

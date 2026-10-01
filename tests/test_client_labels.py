@@ -45,3 +45,20 @@ def test_balcony_door_ui_has_opening_modes_and_fixed_mosquito_net():
     assert '"Поворотно-откидная дверь", "b:set:baldoor:tilt_turn"' in text
     assert 'b:set:baldoor:mos' in text
     assert '5 000 ₽' in text
+
+
+def test_entry_door_ui_has_only_six_standard_sizes():
+    assert 'Входная дверь ПВХ' in TEXT
+    assert 'ENTRY_DOOR_STANDARDS' in TEXT
+    size_block = TEXT.split('if screen == "size":', 1)[1].split('if screen == "glass":', 1)[0]
+    assert 'if ct == "door":' in size_block
+    assert 'ENTRY_DOOR_STANDARDS.items()' in size_block
+    assert 'b:set:size:custom' in size_block  # custom sizes remain available only in the window branch
+
+
+def test_manager_button_is_in_main_menu_and_glass_selector_hides_prices():
+    main_text = Path(__file__).parents[1].joinpath("main.py").read_text(encoding="utf-8")
+    assert '"💬 Связаться с менеджером", callback_data="manager:request:menu"' in main_text
+    assert '"24_i": "СП 24 мм + i (2 стороны)"' in TEXT
+    assert '"32_i": "СП 32 мм + i (2 стороны)"' in TEXT
+    assert "+2 000 ₽" not in TEXT
