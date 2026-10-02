@@ -97,6 +97,7 @@ DOOR_FITTINGS = {
 LIMITS = {
     "width_min": 400, "width_max": 3000,
     "height_min": 400, "height_max": 2800,
+    "sash_turn_min_width": 450,
     "sash_turn_max_width": 1000,
     "door_width_min": 600, "door_width_max": 1800,
     "door_height_min": 1800, "door_height_max": 2400,
@@ -329,12 +330,17 @@ def validate_size(width_mm: int, height_mm: int, construction_type: str = "windo
         return f"Ширина {L['width_min']}–{L['width_max']} мм"
     if not (L["height_min"] <= height_mm <= L["height_max"]):
         return f"Высота {L['height_min']}–{L['height_max']} мм"
-    if sash_count == 1 and configuration in ("turn", "tilt_turn"):
-        if width_mm > L["sash_turn_max_width"]:
+    opening_configs = {
+        "turn", "tilt_turn",
+        "fixed_turn", "fixed_tilt_turn", "tilt_turn_fixed", "turn_turn",
+        "fixed_tilt_turn_fixed", "tilt_turn_fixed_tilt_turn",
+    }
+    if sash_count and configuration in opening_configs:
+        section_width = width_mm / sash_count
+        if section_width < L["sash_turn_min_width"]:
+            return f"Поворотная/ПО створка: ширина не менее {L['sash_turn_min_width']} мм"
+        if section_width > L["sash_turn_max_width"]:
             return f"Поворотная/ПО створка: ширина до {L['sash_turn_max_width']} мм"
-    if sash_count == 2 and configuration == "turn_turn":
-        if width_mm / 2 > L["sash_turn_max_width"]:
-            return f"Створки слишком широкие для turn+turn"
     return None
 
 

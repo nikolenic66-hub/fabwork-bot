@@ -167,8 +167,12 @@ def test_frame_slab_58_uses_frame_range_until_separate_price_is_set():
 
 
 def test_validate_sash():
-    assert validate_size(1200, 1400, "window", 1, "tilt_turn") is not None
-    assert validate_size(900, 1400, "window", 1, "tilt_turn") is None
+    assert validate_size(400, 1400, "window", 1, "tilt_turn") is not None
+    assert validate_size(450, 1400, "window", 1, "tilt_turn") is None
+    assert validate_size(1000, 1400, "window", 1, "tilt_turn") is None
+    assert validate_size(1001, 1400, "window", 1, "tilt_turn") is not None
+    assert validate_size(900, 1400, "window", 2, "turn_turn") is None
+    assert validate_size(899, 1400, "window", 2, "turn_turn") is not None
 
 
 def test_triple_window_g_po_g():

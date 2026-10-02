@@ -1119,6 +1119,18 @@ async def custom_w(m: Message, state: FSMContext):
     if _is_back_text(m.text): return await show_builder(m, state, reset_history=True)
     value = await _read_mm(m, 400, 3000)
     if value is None: return
+    # Проверяем ограничение ширины створки сразу после ввода ширины.
+    # Раньше недопустимая ширина сохранялась в _tmp_w, пользователь переходил
+    # к высоте, а затем получал одну и ту же ошибку ширины при любом значении высоты.
+    data = await state.get_data()
+    width_err = validate_size(
+        value, 400,
+        "door" if data.get("construction_type") == "door" else "window",
+        data.get("sash_count"),
+        data.get("sash_configuration"),
+    )
+    if width_err:
+        return await m.answer(f"⚠️ {width_err}\n\nВведите ширину ещё раз.")
     await state.update_data(_tmp_w=value)
     await state.set_state(CalculationStates.EDIT_SIZE_CUSTOM_H)
     await _edit_builder_message(m, "📐 <b>Введите высоту в мм</b>\n\nНапример: <code>1400</code>", kb([("⬅️ Назад", "b:back"), ("🏠 Меню", "nav:home")], cols=2), state, m.from_user.id, "size_custom_h", False)
