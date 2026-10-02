@@ -7,9 +7,37 @@ from pathlib import Path
 
 from calculator import measurement_fee_for_cart, split_html_message
 from storage.db import Database
+from pricing.price_list import validate_size
 
 
 ROOT = Path(__file__).parents[1]
+
+
+
+def test_window_opening_boundary_matches_ui_scenario():
+    from calculator import calculator
+    from models import CalculationConfig
+    from decimal import Decimal
+
+    cfg = dict(
+        construction_type="window", profile="58", glass="32", sash_count=1,
+        opening="tilt_turn", width_mm=450, height_mm=450,
+        extras={"sash_configuration": "tilt_turn"},
+    )
+    estimate = calculator.calculate(CalculationConfig(**cfg))
+    assert estimate.total == Decimal("6569.55")
+    assert estimate.total > 0
+    assert validate_size(400, 450, "window", 1, "tilt_turn") is not None
+    assert validate_size(450, 450, "window", 1, "tilt_turn") is None
+    assert validate_size(550, 450, "window", 1, "tilt_turn") is None
+
+
+def test_html_splitter_keeps_entities_intact():
+    text = "<b>" + ("&amp;" * 2500) + "</b>"
+    chunks = split_html_message(text)
+    assert all(chunk.replace("&amp;", "").count("&") == 0 for chunk in chunks)
+    assert sum(chunk.count("&amp;") for chunk in chunks) == 2500
+    assert "".join(chunk.replace("<b>", "").replace("</b>", "") for chunk in chunks) == "&amp;" * 2500
 
 
 def test_html_splitter_never_breaks_tags():
@@ -175,3 +203,19 @@ def test_separate_glass_details_use_fixed_installation_label():
 def test_balcony_two_section_window_uses_two_sash_validation():
     text = open("handlers/calculation.py", encoding="utf-8").read()
     assert 'sash_count = 2 if cfg == "fixed_tilt_turn" else 1' in text
+
+
+def test_width_validation_errors_are_tracked_and_cleared_after_valid_input():
+    text = (ROOT / "handlers" / "calculation.py").read_text(encoding="utf-8")
+    assert "async def _remember_validation_error" in text
+    assert "async def _clear_validation_errors" in text
+    assert 'validation_error_message_ids' in text
+    assert 'await _clear_validation_errors(m, state)' in text
+    assert 'await _remember_validation_error(m, state, f"⚠️ {width_err}' in text
+    assert 'payload.pop("validation_error_message_ids", None)' in text
+
+
+def test_invalid_width_error_cleanup_uses_bot_delete_message():
+    text = (ROOT / "handlers" / "calculation.py").read_text(encoding="utf-8")
+    block = text[text.index("async def _clear_validation_errors"):text.index("async def _read_mm", text.index("async def _clear_validation_errors"))]
+    assert 'await m.bot.delete_message(chat_id=m.chat.id, message_id=int(message_id))' in block

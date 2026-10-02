@@ -148,6 +148,7 @@ async def _persist(state: FSMContext, user_id: int) -> None:
     payload = dict(data)
     # FSM-only transient values не нужны после перезапуска.
     payload.pop("_tmp_w", None)
+    payload.pop("validation_error_message_ids", None)
     db().save_draft(user_id, json.dumps(payload, ensure_ascii=False))
 
 
@@ -1103,29 +1104,40 @@ async def set_size(q: CallbackQuery, state: FSMContext):
     await show_builder(q, state, reset_history=True)
 
 
-async def _read_mm(m: Message, min_value: int = 1, max_value: int = 3000) -> int | None:
+async def _remember_validation_error(m: Message, state: FSMContext, text: str) -> None:
+    sent = await m.answer(text)
+    data = await state.get_data()
+    ids = list(data.get("validation_error_message_ids") or [])
+    ids.append(int(sent.message_id))
+    await state.update_data(validation_error_message_ids=ids)
+
+
+async def _clear_validation_errors(m: Message, state: FSMContext) -> None:
+    data = await state.get_data()
+    ids = list(data.get("validation_error_message_ids") or [])
+    if not ids:
+        return
+    for message_id in ids:
+        try:
+            await m.bot.delete_message(chat_id=m.chat.id, message_id=int(message_id))
+        except TelegramBadRequest as exc:
+            if "message to delete not found" not in str(exc).lower() and "message can't be deleted" not in str(exc).lower():
+                log.debug("Validation error cleanup rejected: %s", exc)
+        except Exception:
+            log.debug("Validation error cleanup failed", exc_info=True)
+    await state.update_data(validation_error_message_ids=[])
+
+
+async def _read_mm(m: Message, state: FSMContext, min_value: int = 1, max_value: int = 3000) -> int | None:
     try:
         value = int((m.text or "").strip())
     except ValueError:
-        await m.answer("Введите целое число в миллиметрах.")
+        await _remember_validation_error(m, state, "Введите целое число в миллиметрах.")
         return None
     if not min_value <= value <= max_value:
-        await m.answer(f"Введите число от {min_value} до {max_value} мм.")
+        await _remember_validation_error(m, state, f"Введите число от {min_value} до {max_value} мм.")
         return None
     return value
-
-
-async def _edit_builder_from_message(m: Message, state: FSMContext):
-    data = await state.get_data()
-    mid = data.get("builder_message_id")
-    chat_id = data.get("builder_chat_id")
-    if mid and chat_id:
-        try:
-            # Callback message is not available here, so edit via Bot.
-            await m.bot.edit_message_text(chat_id=int(chat_id), message_id=int(mid), text="", reply_markup=None)
-        except Exception:
-            pass
-    await show_builder(m, state, reset_history=True)
 
 
 @router.message(CalculationStates.EDIT_SIZE_CUSTOM_W)
@@ -1140,7 +1152,7 @@ async def custom_w(m: Message, state: FSMContext):
         "fixed_tilt_turn_fixed", "tilt_turn_fixed_tilt_turn",
     }
     is_opening = construction_type == "window" and data.get("sash_configuration") in opening_configs
-    value = await _read_mm(m, 450 if is_opening else 400, 1000 if is_opening and (data.get("sash_count") or 1) == 1 else 3000)
+    value = await _read_mm(m, state, 450 if is_opening else 400, 1000 if is_opening and (data.get("sash_count") or 1) == 1 else 3000)
     if value is None: return
 
     # Проверяем ширину створки сразу. При ошибке явно остаёмся в состоянии
@@ -1154,7 +1166,9 @@ async def custom_w(m: Message, state: FSMContext):
     if width_err:
         await state.update_data(_tmp_w=None)
         await state.set_state(CalculationStates.EDIT_SIZE_CUSTOM_W)
-        return await m.answer(f"⚠️ {width_err}\n\nВведите ширину ещё раз.")
+        await _remember_validation_error(m, state, f"⚠️ {width_err}\n\nВведите ширину ещё раз.")
+        return
+    await _clear_validation_errors(m, state)
     await state.update_data(_tmp_w=value)
     await state.set_state(CalculationStates.EDIT_SIZE_CUSTOM_H)
     await _edit_builder_message(m, "📐 <b>Введите высоту в мм</b>\n\nНапример: <code>1400</code>", kb([("⬅️ Назад", "b:back"), ("🏠 Меню", "nav:home")], cols=2), state, m.from_user.id, "size_custom_h", False)
@@ -1167,13 +1181,15 @@ async def custom_w(m: Message, state: FSMContext):
 async def custom_h(m: Message, state: FSMContext):
     if _is_cancel_text(m.text) or _is_menu_text(m.text): return await _goto_home(m, state)
     if _is_back_text(m.text): return await show_builder(m, state, reset_history=True)
-    value = await _read_mm(m, 400, 2800)
+    value = await _read_mm(m, state, 400, 2800)
     if value is None: return
     data = await state.get_data()
     w = int(data.get("_tmp_w") or 0)
     err = validate_size(w, value, "door" if data.get("construction_type") == "door" else "window", data.get("sash_count"), data.get("sash_configuration"))
     if err:
-        return await m.answer(f"⚠️ {err}")
+        await _remember_validation_error(m, state, f"⚠️ {err}")
+        return
+    await _clear_validation_errors(m, state)
     await state.update_data(width_mm=w, height_mm=value, _tmp_w=None)
     await state.set_state(CalculationStates.BUILDER)
     try: await m.delete()
@@ -1352,7 +1368,7 @@ async def bal_custom_start(q: CallbackQuery, state: FSMContext):
 async def bal_custom_door_w(m: Message, state: FSMContext):
     if _is_cancel_text(m.text) or _is_menu_text(m.text): return await _goto_home(m, state)
     if _is_back_text(m.text): return await show_builder(m, state, reset_history=True)
-    value = await _read_mm(m, 600, 1800)
+    value = await _read_mm(m, state, 600, 1800)
     if value is None: return
     await state.update_data(door_width_mm=value)
     await state.set_state(CalculationStates.EDIT_BAL_DOOR_H)
@@ -1366,7 +1382,7 @@ async def bal_custom_door_w(m: Message, state: FSMContext):
 async def bal_custom_door_h(m: Message, state: FSMContext):
     if _is_cancel_text(m.text) or _is_menu_text(m.text): return await _goto_home(m, state)
     if _is_back_text(m.text): return await show_builder(m, state, reset_history=True)
-    value = await _read_mm(m, 1800, 2400)
+    value = await _read_mm(m, state, 1800, 2400)
     if value is None: return
     await state.update_data(door_height_mm=value)
     await state.set_state(CalculationStates.EDIT_BAL_WIN_W)
@@ -1380,7 +1396,7 @@ async def bal_custom_door_h(m: Message, state: FSMContext):
 async def bal_custom_win_w(m: Message, state: FSMContext):
     if _is_cancel_text(m.text) or _is_menu_text(m.text): return await _goto_home(m, state)
     if _is_back_text(m.text): return await show_builder(m, state, reset_history=True)
-    value = await _read_mm(m, 400, 3000)
+    value = await _read_mm(m, state, 400, 3000)
     if value is None: return
     await state.update_data(window_width_mm=value, width_mm=value)
     await state.set_state(CalculationStates.EDIT_BAL_WIN_H)
@@ -1394,13 +1410,15 @@ async def bal_custom_win_w(m: Message, state: FSMContext):
 async def bal_custom_win_h(m: Message, state: FSMContext):
     if _is_cancel_text(m.text) or _is_menu_text(m.text): return await _goto_home(m, state)
     if _is_back_text(m.text): return await show_builder(m, state, reset_history=True)
-    value = await _read_mm(m, 400, 2800)
+    value = await _read_mm(m, state, 400, 2800)
     if value is None: return
     data = await state.get_data()
     w = int(data.get("window_width_mm") or 0)
     err = validate_size(w, value, "window", data.get("window_sash_count") or 1, data.get("window_configuration"))
     if err:
-        return await m.answer(f"⚠️ {err}")
+        await _remember_validation_error(m, state, f"⚠️ {err}")
+        return
+    await _clear_validation_errors(m, state)
     await state.update_data(window_height_mm=value, height_mm=value, sill_length_mm=w, sill2_length_mm=w)
     await state.set_state(CalculationStates.BUILDER)
     try: await m.delete()

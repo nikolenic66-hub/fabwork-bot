@@ -73,8 +73,9 @@ class PricingError(ValueError):
     pass
 
 
-_HTML_TOKEN_RE = re.compile(r"(<[^>]+>)")
+_HTML_TOKEN_RE = re.compile(r"(<[^>]+>|&(?:#\d+|#x[0-9A-Fa-f]+|[A-Za-z][A-Za-z0-9]+);)")
 _HTML_TAG_RE = re.compile(r"<\s*(/?)\s*([A-Za-z][\w:-]*)(?:\s[^>]*)?>")
+_HTML_ENTITY_RE = re.compile(r"&(?:#\d+|#x[0-9A-Fa-f]+|[A-Za-z][A-Za-z0-9]+);")
 _HTML_VOID_TAGS = {"br", "hr"}
 
 
@@ -144,7 +145,19 @@ def split_html_message(text: str, limit: int = 4000) -> list[str]:
             stack.append((lname, token))
             continue
 
-        # Plain text/entity content. Keep enough room for active closing tags.
+        # HTML entities are atomic: never split an entity such as &amp; across chunks.
+        if _HTML_ENTITY_RE.fullmatch(token):
+            available = limit - len(current) - len(closing_suffix())
+            if len(token) > available:
+                if current != opening_prefix():
+                    flush()
+                    available = limit - len(current) - len(closing_suffix())
+                if len(token) > available:
+                    raise ValueError("HTML entity cannot fit into message limit")
+            current += token
+            continue
+
+        # Plain text content. Keep enough room for active closing tags.
         while token:
             available = limit - len(current) - len(closing_suffix())
             if available <= 0:
