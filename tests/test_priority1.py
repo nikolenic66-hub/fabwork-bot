@@ -88,11 +88,14 @@ def test_calculation_uses_shared_main_menu_and_handles_not_modified():
     assert 'log.exception("Unexpected builder message edit failure")' in text
 
 
-def test_reply_keyboard_returns_to_one_bot_message_path():
+def test_reply_keyboard_returns_to_full_inline_main_menu():
     text = (ROOT / "main.py").read_text(encoding="utf-8")
-    assert "async def _show_main_menu_after_reply" in text
-    assert "ReplyKeyboardRemove()" in text
-    assert "await sent.edit_reply_markup(reply_markup=main_menu())" in text
+    start = text.index("async def _show_main_menu_after_reply")
+    end = text.index("@router.message(CommandStart())", start)
+    block = text[start:end]
+    assert "reply_markup=main_menu()" in block
+    assert "ReplyKeyboardRemove()" not in block
+    assert "sent.edit_reply_markup" not in block
     assert 'await m.answer("Выберите действие:"' not in text
 
 
@@ -136,3 +139,39 @@ def test_manager_notification_failures_are_logged():
     assert "return False" in calc
     assert "Failed to notify manager" in calc
     assert "Failed to notify manager about service request" in services
+
+
+def test_entry_door_has_exactly_six_standard_sizes_and_prices():
+    from decimal import Decimal
+    from calculator import calculator
+    from models import CalculationConfig
+    from pricing.price_list import ENTRY_DOOR_PRESETS
+
+    assert tuple(ENTRY_DOOR_PRESETS) == (
+        (900, 2100), (1000, 2100), (1100, 2100),
+        (1300, 2100), (1400, 2100), (1600, 2100),
+    )
+    for (width, height), expected in ENTRY_DOOR_PRESETS.items():
+        estimate = calculator.calculate(CalculationConfig(
+            construction_type="door", profile="70", width_mm=width, height_mm=height,
+            door_type="single", opening="single", door_sash="T",
+            door_threshold="frame", door_lock="single", door_fittings="push", glass="32",
+        ))
+        assert estimate.total == expected
+
+
+def test_entry_door_custom_size_is_not_offered():
+    text = open("handlers/calculation.py", encoding="utf-8").read()
+    block = text.split('if screen == "size":', 1)[1].split('if screen == "glass":', 1)[0]
+    assert 'if ct != "door":' in block
+
+
+def test_separate_glass_details_use_fixed_installation_label():
+    text = open("handlers/calculation.py", encoding="utf-8").read()
+    assert 'Монтаж стеклопакета: <b>{fmt_money(e.installation)}</b>' in text
+    assert 'Процентный монтаж 17% к отдельному стеклопакету не применяется.' in text
+
+
+def test_balcony_two_section_window_uses_two_sash_validation():
+    text = open("handlers/calculation.py", encoding="utf-8").read()
+    assert 'sash_count = 2 if cfg == "fixed_tilt_turn" else 1' in text

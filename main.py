@@ -73,17 +73,16 @@ def manager_reply_keyboard():
 
 async def _show_main_menu_after_reply(message: Message, state: FSMContext) -> None:
     await state.clear()
-    sent = await message.answer(
+    # Нельзя одновременно передать ReplyKeyboardRemove и inline-клавиатуру
+    # в одном сообщении. Раньше мы сначала отправляли Remove, а затем
+    # пытались добавить inline-клавиатуру отдельным редактированием; Telegram
+    # мог отклонить такой edit, и пользователь получал меню без кнопок.
+    # Поэтому главное меню всегда отправляем сразу с общей inline-клавиатурой.
+    await message.answer(
         MAIN_MENU_TEXT,
         parse_mode="HTML",
-        reply_markup=ReplyKeyboardRemove(),
+        reply_markup=main_menu(),
     )
-    # ReplyKeyboardRemove действует на чат, после чего то же самое сообщение
-    # превращаем в обычное главное меню с inline-кнопками.
-    try:
-        await sent.edit_reply_markup(reply_markup=main_menu())
-    except Exception:
-        log.exception("Failed to attach inline main menu after removing reply keyboard")
 
 
 
@@ -256,26 +255,6 @@ async def manager_phone_text(m: Message, state: FSMContext):
     if len(digits) < 10:
         return await m.answer("Нужен номер из 10+ цифр.", reply_markup=manager_reply_keyboard())
     await _finish_manager_lead(m, state, (m.text or "").strip())
-
-
-@router.callback_query(F.data == "history")
-async def history_cb(q: CallbackQuery):
-    await q.answer()
-    try:
-        from storage.db import Database
-        db = Database(os.getenv("DATABASE_PATH", "/data/bot.db"))
-        rows = db.history(q.from_user.id if q.from_user else 0, limit=8)
-    except Exception:
-        rows = []
-    if not rows:
-        await q.message.answer("Пока нет заявок.", reply_markup=menu())
-        return
-    labels = {"new": "🆕", "measurer": "📏", "quote": "📋", "done": "✅"}
-    lines = ["📋 <b>Ваши заявки</b>\n"]
-    for rid, total, status, created in rows:
-        st = labels.get(status or "new", "🆕")
-        lines.append(f"{st} №{rid} — {total} ₽ — {created}")
-    await q.message.answer("\n".join(lines), reply_markup=menu())
 
 
 async def main():

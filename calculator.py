@@ -33,6 +33,8 @@ from pricing.price_list import (
     GLASS_UNIT_PRICE_PER_M2,
     GLASS_PRICE_PER_M2,
     I_GLASS_SURCHARGE_PER_CONSTRUCTION,
+    ENTRY_DOOR_PRESETS,
+    INSTALLATION_RATE,
     SERVICE_PRICES,
     money,
     validate_size,
@@ -358,6 +360,8 @@ class Calculator:
     def _door_items(self, c: CalculationConfig) -> list[EstimateItem]:
         if not c.width_mm or not c.height_mm or c.width_mm <= 0 or c.height_mm <= 0:
             raise PricingError("Укажите корректные размеры двери")
+        if (c.width_mm, c.height_mm) not in ENTRY_DOOR_PRESETS:
+            raise PricingError("Для входной двери доступны только стандартные размеры")
         self._check_size(c, c.width_mm, c.height_mm)
         opening = c.door_type or c.opening
         sash = c.door_sash
@@ -368,13 +372,18 @@ class Calculator:
         if not all([opening, sash, threshold, lock, fittings]):
             raise PricingError("Не заполнены параметры двери")
         try:
-            price = get_door_price(opening, sash, threshold, lock, fittings, glass)
+            if (c.width_mm, c.height_mm) in ENTRY_DOOR_PRESETS:
+                total_with_installation = ENTRY_DOOR_PRESETS[(c.width_mm, c.height_mm)]
+                price = money(total_with_installation / (Decimal("1.00") + INSTALLATION_RATE))
+            else:
+                price = get_door_price(opening, sash, threshold, lock, fittings, glass)
         except ValueError as e:
             raise PricingError(str(e)) from e
         base_glass = base_glass_key(glass)
         if base_glass not in GLASS_PRICE_PER_M2:
             raise PricingError("Доступны только стеклопакеты 24 и 32 мм")
-        price += money((Decimal(c.width_mm * c.height_mm) / Decimal("1000000")) * GLASS_PRICE_PER_M2[base_glass])
+        if (c.width_mm, c.height_mm) not in ENTRY_DOOR_PRESETS:
+            price += money((Decimal(c.width_mm * c.height_mm) / Decimal("1000000")) * GLASS_PRICE_PER_M2[base_glass])
         # i-доплата учитывается единообразно в общем калькуляторе,
         # чтобы она не попадала в базу, к которой применяется монтаж 17%.
         price = money(price)
@@ -388,7 +397,7 @@ class Calculator:
             FRIENDLY_THRESHOLD.get(threshold, threshold),
             FRIENDLY_LOCK.get(lock, lock),
             FRIENDLY_FITTINGS.get(fittings, fittings),
-            FRIENDLY_GLASS.get(glass, glass) + direction,
+            ("стандартная комплектация" if (c.width_mm, c.height_mm) in ENTRY_DOOR_PRESETS else FRIENDLY_GLASS.get(glass, glass)) + direction,
         ]
         items = [EstimateItem(", ".join(parts), price)]
         items.extend(self._sill_items(c))

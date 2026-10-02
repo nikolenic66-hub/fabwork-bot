@@ -45,6 +45,7 @@ def test_balcony_door_ui_has_opening_modes_and_fixed_mosquito_net():
     assert '"Поворотно-откидная дверь", "b:set:baldoor:tilt_turn"' in text
     assert 'b:set:baldoor:mos' not in text.split('if screen == "door":', 1)[1].split('if screen == "bal_size":', 1)[0]
     assert 'Дверная москитная сетка — 5 000 ₽' not in text
+    assert 'Дверная москитная сетка' in text
 
 
 def test_balcony_door_screen_contains_only_opening_modes_and_mosquito():

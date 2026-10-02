@@ -23,6 +23,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from calculator import calculator, PricingError, measurement_fee_for_cart, split_html_message
 from models import CalculationConfig
 from pricing.price_list import (
+    ENTRY_DOOR_PRESETS,
     BALCONY_GLAZING_TYPES,
     DOOR_FITTINGS,
     DOOR_LOCK,
@@ -52,7 +53,7 @@ WINDOW_SIZE_PRESETS = {
     2: [(1000, 1200), (1200, 1200), (1200, 1400), (1300, 1400), (1400, 1400), (1500, 1400)],
     3: [(1800, 1200), (1800, 1400), (2000, 1400), (2100, 1400), (2400, 1400)],
 }
-DOOR_SIZE_PRESETS = [(700, 2000), (700, 2100), (800, 2100), (900, 2100)]
+DOOR_SIZE_PRESETS = tuple(ENTRY_DOOR_PRESETS.keys())
 BALCONY_PRESETS = [
     (700, 2100, 800, 1300),
     (700, 2100, 800, 1400),
@@ -493,8 +494,8 @@ def _screen_builder(data: dict) -> tuple[str, list[tuple[str, str]]]:
             f"💰 <b>{live}</b> <i>ориентировочно</i>"
         )
         rows = [
-            ("📐 Размер", "b:edit:size"), ("🚪 Параметры двери", "b:edit:door"),
-            ("🔲 Стеклопакет", "b:edit:glass"), ("⚙️ Дополнительно", "b:edit:extras"),
+            ("📐 Размер", "b:edit:size"),
+            ("⚙️ Дополнительно", "b:edit:extras"),
         ]
     elif ct == "balcony":
         text = (
@@ -615,7 +616,9 @@ async def _render_screen(target, state: FSMContext, screen: str, push: bool = Tr
         ct = data.get("construction_type")
         presets = DOOR_SIZE_PRESETS if ct == "door" else WINDOW_SIZE_PRESETS.get(data.get("sash_count") or 1, WINDOW_SIZE_PRESETS[1])
         rows = [(f"{w} × {h} мм", f"b:set:size:{w}x{h}") for w, h in presets]
-        rows += [("✏️ Свои размеры", "b:set:size:custom"), ("⬅️ Назад", "b:back")]
+        if ct != "door":
+            rows.append(("✏️ Свои размеры", "b:set:size:custom"))
+        rows.append(("⬅️ Назад", "b:back"))
         return await _edit_or_answer(target, "📐 <b>Выберите размер Ш × В</b>", kb(rows, cols=2), state, user_id, "size", push)
     if screen == "glass":
         glass_labels = {
@@ -771,12 +774,19 @@ async def _render_estimate(target, state: FSMContext, details: bool = False):
             if data.get("construction_type") == "glass_unit" and item.name == "Монтаж стеклопакета":
                 continue
             text.append(f"• {escape(item.name)} — <b>{fmt_money(item.price)}</b>")
+        if data.get("construction_type") == "glass_unit":
+            installation_line = f"Монтаж стеклопакета: <b>{fmt_money(e.installation)}</b>"
+            dismantling_line = "<i>Процентный монтаж 17% к отдельному стеклопакету не применяется.</i>"
+            measure_line = "📏 Замер стеклопакета — <b>500 ₽</b>."
+        else:
+            installation_line = f"Монтаж 17%: <b>{fmt_money(e.installation)}</b>"
+            dismantling_line = "<i>Демонтаж уже входит в монтаж 17%.</i>"
+            measure_line = "📏 Замер для окон, дверей и балконных блоков — <b>бесплатно</b>."
         text += [
             "", f"Конструкция и доп. элементы: <b>{fmt_money(e.subtotal)}</b>",
-            f"Монтаж 17%: <b>{fmt_money(e.installation)}</b>",
-            "<i>Демонтаж уже входит в монтаж 17%.</i>",
+            installation_line, dismantling_line,
             "────────────", f"💰 <b>ИТОГО: {fmt_money(e.total)}</b>",
-            "", ("📏 Замер стеклопакета — <b>500 ₽</b>." if data.get("construction_type") == "glass_unit" else "📏 Замер для окон, дверей и балконных блоков — <b>бесплатно</b>."),
+            "", measure_line,
         ]
     else:
         extras = _extras_summary(data)
@@ -1074,17 +1084,22 @@ async def edit_size(q: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.startswith("b:set:size:"))
 async def set_size(q: CallbackQuery, state: FSMContext):
-    await q.answer(); user_id = q.from_user.id; await _restore(state, user_id)
+    user_id = q.from_user.id
+    await _restore(state, user_id)
+    data = await state.get_data()
     val = q.data.rsplit(":", 1)[1]
     if val == "custom":
+        if data.get("construction_type") == "door":
+            return await q.answer("Для входной двери доступны только стандартные размеры.", show_alert=True)
+        await q.answer()
         await state.set_state(CalculationStates.EDIT_SIZE_CUSTOM_W)
         return await _edit_builder_message(q, "📐 <b>Введите ширину в мм</b>\n\nНапример: <code>1200</code>", kb([("⬅️ Назад", "b:back"), ("🏠 Меню", "nav:home")], cols=2), state, user_id, "size_custom_w", True)
     w, h = map(int, val.split("x"))
-    data = await state.get_data()
     err = validate_size(w, h, "door" if data.get("construction_type") == "door" else ("window" if data.get("construction_type") != "glass_unit" else "window"), data.get("sash_count"), data.get("sash_configuration"))
     if err:
         return await q.answer(err, show_alert=True)
-    await state.update_data(width_mm=w, height_mm=h)
+    await q.answer()
+    await state.update_data(width_mm=w, height_mm=h, entry_door_preset=f"{w}x{h}" if data.get("construction_type") == "door" else None)
     await show_builder(q, state, reset_history=True)
 
 
@@ -1117,25 +1132,35 @@ async def _edit_builder_from_message(m: Message, state: FSMContext):
 async def custom_w(m: Message, state: FSMContext):
     if _is_cancel_text(m.text) or _is_menu_text(m.text): return await _goto_home(m, state)
     if _is_back_text(m.text): return await show_builder(m, state, reset_history=True)
-    value = await _read_mm(m, 400, 3000)
-    if value is None: return
-    # Проверяем ограничение ширины створки сразу после ввода ширины.
-    # Раньше недопустимая ширина сохранялась в _tmp_w, пользователь переходил
-    # к высоте, а затем получал одну и ту же ошибку ширины при любом значении высоты.
     data = await state.get_data()
+    construction_type = "door" if data.get("construction_type") == "door" else "window"
+    opening_configs = {
+        "turn", "tilt_turn",
+        "fixed_turn", "fixed_tilt_turn", "tilt_turn_fixed", "turn_turn",
+        "fixed_tilt_turn_fixed", "tilt_turn_fixed_tilt_turn",
+    }
+    is_opening = construction_type == "window" and data.get("sash_configuration") in opening_configs
+    value = await _read_mm(m, 450 if is_opening else 400, 1000 if is_opening and (data.get("sash_count") or 1) == 1 else 3000)
+    if value is None: return
+
+    # Проверяем ширину створки сразу. При ошибке явно остаёмся в состоянии
+    # ввода ширины и очищаем временную ширину, чтобы следующий ввод (например,
+    # 550 мм после ошибочного 1300 мм) обрабатывался как новая ширина.
     width_err = validate_size(
-        value, 400,
-        "door" if data.get("construction_type") == "door" else "window",
+        value, 400, construction_type,
         data.get("sash_count"),
         data.get("sash_configuration"),
     )
     if width_err:
+        await state.update_data(_tmp_w=None)
+        await state.set_state(CalculationStates.EDIT_SIZE_CUSTOM_W)
         return await m.answer(f"⚠️ {width_err}\n\nВведите ширину ещё раз.")
     await state.update_data(_tmp_w=value)
     await state.set_state(CalculationStates.EDIT_SIZE_CUSTOM_H)
     await _edit_builder_message(m, "📐 <b>Введите высоту в мм</b>\n\nНапример: <code>1400</code>", kb([("⬅️ Назад", "b:back"), ("🏠 Меню", "nav:home")], cols=2), state, m.from_user.id, "size_custom_h", False)
     try: await m.delete()
-    except Exception: pass
+    except Exception:
+        log.debug("Telegram cleanup/edit failed", exc_info=True)
 
 
 @router.message(CalculationStates.EDIT_SIZE_CUSTOM_H)
@@ -1152,7 +1177,8 @@ async def custom_h(m: Message, state: FSMContext):
     await state.update_data(width_mm=w, height_mm=value, _tmp_w=None)
     await state.set_state(CalculationStates.BUILDER)
     try: await m.delete()
-    except Exception: pass
+    except Exception:
+        log.debug("Telegram cleanup/edit failed", exc_info=True)
     await show_builder(m, state, reset_history=True)
 
 
@@ -1332,7 +1358,8 @@ async def bal_custom_door_w(m: Message, state: FSMContext):
     await state.set_state(CalculationStates.EDIT_BAL_DOOR_H)
     await _edit_builder_message(m, "🚪 <b>Высота двери в мм</b>\n\nДопустимо 1800–2400 мм.", kb([("⬅️ Назад", "b:back"), ("🏠 Меню", "nav:home")], cols=2), state, m.from_user.id, "bal_custom_door_h", False)
     try: await m.delete()
-    except Exception: pass
+    except Exception:
+        log.debug("Telegram cleanup/edit failed", exc_info=True)
 
 
 @router.message(CalculationStates.EDIT_BAL_DOOR_H)
@@ -1345,7 +1372,8 @@ async def bal_custom_door_h(m: Message, state: FSMContext):
     await state.set_state(CalculationStates.EDIT_BAL_WIN_W)
     await _edit_builder_message(m, "🪟 <b>Ширина окна в мм</b>\n\nДопустимо 400–3000 мм.", kb([("⬅️ Назад", "b:back"), ("🏠 Меню", "nav:home")], cols=2), state, m.from_user.id, "bal_custom_win_w", False)
     try: await m.delete()
-    except Exception: pass
+    except Exception:
+        log.debug("Telegram cleanup/edit failed", exc_info=True)
 
 
 @router.message(CalculationStates.EDIT_BAL_WIN_W)
@@ -1358,7 +1386,8 @@ async def bal_custom_win_w(m: Message, state: FSMContext):
     await state.set_state(CalculationStates.EDIT_BAL_WIN_H)
     await _edit_builder_message(m, "🪟 <b>Высота окна в мм</b>\n\nДопустимо 400–2800 мм.", kb([("⬅️ Назад", "b:back"), ("🏠 Меню", "nav:home")], cols=2), state, m.from_user.id, "bal_custom_win_h", False)
     try: await m.delete()
-    except Exception: pass
+    except Exception:
+        log.debug("Telegram cleanup/edit failed", exc_info=True)
 
 
 @router.message(CalculationStates.EDIT_BAL_WIN_H)
@@ -1375,7 +1404,8 @@ async def bal_custom_win_h(m: Message, state: FSMContext):
     await state.update_data(window_height_mm=value, height_mm=value, sill_length_mm=w, sill2_length_mm=w)
     await state.set_state(CalculationStates.BUILDER)
     try: await m.delete()
-    except Exception: pass
+    except Exception:
+        log.debug("Telegram cleanup/edit failed", exc_info=True)
     await show_builder(m, state, reset_history=True)
 
 
@@ -1386,7 +1416,11 @@ async def edit_bal_win(q: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.startswith("b:set:balcfg:"))
 async def set_balcfg(q: CallbackQuery, state: FSMContext):
-    await q.answer(); cfg = q.data.rsplit(":", 1)[1]; await state.update_data(window_configuration=cfg, sash_configuration=cfg, window_sash_count=1); await show_builder(q, state, reset_history=True)
+    await q.answer()
+    cfg = q.data.rsplit(":", 1)[1]
+    sash_count = 2 if cfg == "fixed_tilt_turn" else 1
+    await state.update_data(window_configuration=cfg, sash_configuration=cfg, window_sash_count=sash_count)
+    await show_builder(q, state, reset_history=True)
 
 
 @router.callback_query(F.data == "b:edit:scheme")
@@ -1521,7 +1555,8 @@ async def request(q: CallbackQuery, state: FSMContext):
         await _persist(state, q.from_user.id)
     await state.set_state(CalculationStates.GET_NAME)
     try: await q.message.edit_reply_markup(reply_markup=None)
-    except Exception: pass
+    except Exception:
+        log.debug("Telegram cleanup/edit failed", exc_info=True)
     await q.message.answer("Оформление заявки.\n\nКак вас зовут?", reply_markup=reply_cancel_only())
 
 
@@ -1588,7 +1623,8 @@ async def measure_start(q: CallbackQuery, state: FSMContext):
     title = "📏 <b>Замер — 500 ₽</b>" if measure_fee else "📏 <b>Бесплатный замер</b>"
     await state.set_state(CalculationStates.MEASURE_NAME); await _persist(state, q.from_user.id)
     try: await q.message.edit_reply_markup(reply_markup=None)
-    except Exception: pass
+    except Exception:
+        log.debug("Telegram cleanup/edit failed", exc_info=True)
     await q.message.answer(title + "\n\nКак вас зовут?", parse_mode="HTML", reply_markup=reply_cancel_only())
 
 
@@ -1869,4 +1905,5 @@ async def manager_status(q: CallbackQuery, state: FSMContext):
     db().set_status(rid, status)
     await q.answer(f"Статус: {STATUS_LABELS[status]}")
     try: await q.message.edit_reply_markup(reply_markup=_manager_status_keyboard(rid))
-    except Exception: pass
+    except Exception:
+        log.debug("Telegram cleanup/edit failed", exc_info=True)
