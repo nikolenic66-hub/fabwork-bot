@@ -43,6 +43,7 @@ from pricing.price_list import (
 )
 from states import CalculationStates
 from storage.db import Database
+from handlers.manager import manager_chat_ids
 from handlers.navigation import MAIN_MENU_TEXT, main_menu
 
 router = Router(name="calculation")
@@ -199,16 +200,16 @@ async def _goto_home(target, state: FSMContext):
         await msg.edit_text(
             MAIN_MENU_TEXT,
             parse_mode="HTML",
-            reply_markup=main_menu(),
+            reply_markup=main_menu(user_id in manager_chat_ids()),
         )
     except TelegramBadRequest as exc:
         if "message is not modified" in str(exc).lower():
             return
         log.warning("Could not edit main menu message: %s", exc)
-        await msg.answer(MAIN_MENU_TEXT, parse_mode="HTML", reply_markup=main_menu())
+        await msg.answer(MAIN_MENU_TEXT, parse_mode="HTML", reply_markup=main_menu(user_id in manager_chat_ids()))
     except Exception:
         log.exception("Unexpected error while opening main menu")
-        await msg.answer(MAIN_MENU_TEXT, parse_mode="HTML", reply_markup=main_menu())
+        await msg.answer(MAIN_MENU_TEXT, parse_mode="HTML", reply_markup=main_menu(user_id in manager_chat_ids()))
 
 
 async def _edit_or_answer(target, text: str, markup, state: FSMContext, user_id: int, screen: str, push: bool = False):
@@ -1835,20 +1836,18 @@ def _manager_measure_text(request_id: int, data: dict, cart: list[dict], total: 
 
 
 async def _notify_manager_controls(bot: Bot, request_id: int) -> bool:
-    try:
-        cid = int(os.getenv("MANAGER_CHAT_ID", "0"))
-    except ValueError:
-        log.error("Invalid MANAGER_CHAT_ID")
+    manager_ids = manager_chat_ids()
+    if not manager_ids:
+        log.error("No manager chat IDs are configured")
         return False
-    if not cid:
-        log.error("MANAGER_CHAT_ID is not configured")
-        return False
-    try:
-        await bot.send_message(cid, "Управление статусом заявки:", reply_markup=_manager_status_keyboard(request_id))
-        return True
-    except Exception:
-        log.exception("Failed to send manager controls for request %s", request_id)
-        return False
+    ok = True
+    for cid in manager_ids:
+        try:
+            await bot.send_message(cid, "Управление статусом заявки:", reply_markup=_manager_status_keyboard(request_id))
+        except Exception:
+            ok = False
+            log.exception("Failed to send manager controls to %s for request %s", cid, request_id)
+    return ok
 
 
 async def _send_manager_text(bot: Bot, chat_id: int, text: str, photo_file_id: str | None = None) -> None:
@@ -1863,20 +1862,53 @@ async def _send_manager_text(bot: Bot, chat_id: int, text: str, photo_file_id: s
 
 
 async def _notify_manager(bot: Bot, text: str, photo_file_id: str | None = None) -> bool:
-    try:
-        cid = int(os.getenv("MANAGER_CHAT_ID", "0"))
-    except ValueError:
-        log.error("Invalid MANAGER_CHAT_ID")
+    manager_ids = manager_chat_ids()
+    if not manager_ids:
+        log.error("No manager chat IDs are configured")
         return False
-    if not cid:
-        log.error("MANAGER_CHAT_ID is not configured")
-        return False
-    try:
-        await _send_manager_text(bot, cid, text, photo_file_id)
-        return True
-    except Exception:
-        log.exception("Failed to notify manager")
-        return False
+    ok = True
+    for cid in manager_ids:
+        try:
+            await _send_manager_text(bot, cid, text, photo_file_id)
+        except Exception:
+            ok = False
+            log.exception("Failed to notify manager %s", cid)
+    return ok
+
+
+def _manager_panel_keyboard():
+    return kb([
+        ("🆕 Новые", "mgr:list:new"),
+        ("📏 На замер", "mgr:list:measurer"),
+        ("📋 КП", "mgr:list:quote"),
+        ("✅ Закрытые", "mgr:list:done"),
+        ("📂 Все заявки", "mgr:list:all"),
+        ("🏠 Меню", "nav:home"),
+    ], cols=2)
+
+
+def _manager_list_keyboard(rows):
+    buttons = [
+        (f"📄 №{row[0]} · {STATUS_LABELS.get(row[5] or 'new', '🆕 Новая')}", f"mgr:view:{row[0]}")
+        for row in rows
+    ]
+    buttons.extend([("◀️ К заявкам", "mgr:menu"), ("🏠 Меню", "nav:home")])
+    return kb(buttons, cols=1)
+
+
+def _manager_list_text(rows, title: str) -> str:
+    lines = [f"📋 <b>{escape(title)}</b>", ""]
+    if not rows:
+        lines.append("Заявок нет.")
+        return "\n".join(lines)
+    for rid, user_id, name, phone, total, status, address, created in rows:
+        lines.append(
+            f"<b>№{rid}</b> · {STATUS_LABELS.get(status or 'new', '🆕 Новая')} · <b>{fmt_money(total)}</b>\n"
+            f"👤 {escape(name or '—')} · 📞 {escape(phone or '—')}\n"
+            f"🕐 {escape(str(created))}"
+        )
+        lines.append("")
+    return "\n".join(lines).rstrip()
 
 
 def _manager_status_keyboard(request_id: int):
@@ -1889,11 +1921,49 @@ def _manager_status_keyboard(request_id: int):
     ], cols=2)
 
 
+@router.callback_query(F.data == "mgr:menu")
+async def manager_menu(q: CallbackQuery, state: FSMContext):
+    manager_ids = manager_chat_ids()
+    if not q.message or not q.from_user or q.from_user.id not in manager_ids:
+        return await q.answer("Доступно только менеджеру", show_alert=True)
+    await q.answer()
+    await q.message.edit_text(
+        "📋 <b>Заявки менеджера</b>\n\nВыберите нужный список:",
+        parse_mode="HTML",
+        reply_markup=_manager_panel_keyboard(),
+    )
+
+
+@router.callback_query(F.data.startswith("mgr:list:"))
+async def manager_list(q: CallbackQuery, state: FSMContext):
+    manager_ids = manager_chat_ids()
+    if not q.message or not q.from_user or q.from_user.id not in manager_ids:
+        return await q.answer("Доступно только менеджеру", show_alert=True)
+    key = (q.data or "").rsplit(":", 1)[1]
+    titles = {
+        "all": "Все заявки",
+        "new": "Новые заявки",
+        "measurer": "Заявки на замер",
+        "quote": "Заявки с КП",
+        "done": "Закрытые заявки",
+    }
+    if key not in titles:
+        return await q.answer("Неизвестный список", show_alert=True)
+    rows = db().manager_requests(status=None if key == "all" else key, limit=20)
+    await q.answer()
+    await q.message.edit_text(
+        _manager_list_text(rows, titles[key]),
+        parse_mode="HTML",
+        reply_markup=_manager_list_keyboard(rows),
+    )
+
+
 @router.callback_query(F.data.startswith("mgr:view:"))
 async def manager_view(q: CallbackQuery, state: FSMContext):
-    try: rid = int((q.data or "").rsplit(":", 1)[1]); cid = int(os.getenv("MANAGER_CHAT_ID", "0"))
+    try: rid = int((q.data or "").rsplit(":", 1)[1])
     except ValueError: return await q.answer("Некорректная заявка", show_alert=True)
-    if not cid or not q.message or q.message.chat.id != cid: return await q.answer("Доступно только менеджеру", show_alert=True)
+    manager_ids = manager_chat_ids()
+    if not manager_ids or not q.message or q.message.chat.id not in manager_ids: return await q.answer("Доступно только менеджеру", show_alert=True)
     row = db().get_request(rid)
     if not row: return await q.answer("Заявка не найдена", show_alert=True)
     _, user_id, name_, phone, config_json, total, status, address_, _ = row
@@ -1914,9 +1984,10 @@ async def manager_view(q: CallbackQuery, state: FSMContext):
 async def manager_status(q: CallbackQuery, state: FSMContext):
     parts = (q.data or "").split(":")
     if len(parts) != 4: return await q.answer("Некорректная команда", show_alert=True)
-    try: cid = int(os.getenv("MANAGER_CHAT_ID", "0")); rid = int(parts[2])
+    try: rid = int(parts[2])
     except ValueError: return await q.answer("Настройки менеджера не заданы", show_alert=True)
-    if not cid or not q.message or q.message.chat.id != cid: return await q.answer("Доступно только менеджеру", show_alert=True)
+    manager_ids = manager_chat_ids()
+    if not manager_ids or not q.message or q.message.chat.id not in manager_ids: return await q.answer("Доступно только менеджеру", show_alert=True)
     status = parts[3]
     if status not in STATUS_LABELS: return await q.answer("Неизвестный статус", show_alert=True)
     if not db().get_request(rid): return await q.answer("Заявка не найдена", show_alert=True)

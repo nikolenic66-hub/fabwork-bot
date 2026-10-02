@@ -24,6 +24,7 @@ from pricing.price_list import (
     service_seal,
 )
 from states import ServiceStates
+from handlers.manager import manager_chat_ids
 from storage.db import Database
 
 router = Router(name="services")
@@ -450,14 +451,16 @@ async def svc_phone(m: Message, state: FSMContext):
 
     manager_ok = True
     if created:
-        try:
-            cid = int(os.getenv("MANAGER_CHAT_ID", "0"))
-            if not cid:
-                raise RuntimeError("MANAGER_CHAT_ID is not configured")
-            await m.bot.send_message(cid, text, parse_mode="HTML")
-        except Exception:
+        manager_ids = manager_chat_ids()
+        if not manager_ids:
             manager_ok = False
-            log.exception("Failed to notify manager about service request %s", request_id)
+            log.error("No manager chat IDs are configured")
+        for cid in manager_ids:
+            try:
+                await m.bot.send_message(cid, text, parse_mode="HTML")
+            except Exception:
+                manager_ok = False
+                log.exception("Failed to notify manager %s about service request %s", cid, request_id)
 
     await state.clear()
     if not manager_ok:

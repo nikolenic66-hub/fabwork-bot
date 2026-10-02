@@ -19,9 +19,12 @@ MAIN_MENU_BUTTONS: tuple[tuple[str, str], ...] = (
 )
 
 
-def main_menu() -> InlineKeyboardMarkup:
+def main_menu(is_manager: bool = False) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    for text, callback_data in MAIN_MENU_BUTTONS:
+    buttons = list(MAIN_MENU_BUTTONS)
+    if is_manager:
+        buttons.append(("📋 Заявки менеджера", "mgr:menu"))
+    for text, callback_data in buttons:
         builder.button(text=text, callback_data=callback_data)
     builder.adjust(2)
     return builder.as_markup()

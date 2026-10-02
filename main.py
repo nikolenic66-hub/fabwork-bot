@@ -22,6 +22,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from handlers.navigation import MAIN_MENU_TEXT, main_menu
+from handlers.manager import manager_chat_ids
 from states import ManagerStates
 from storage.db import Database
 
@@ -78,10 +79,11 @@ async def _show_main_menu_after_reply(message: Message, state: FSMContext) -> No
     # пытались добавить inline-клавиатуру отдельным редактированием; Telegram
     # мог отклонить такой edit, и пользователь получал меню без кнопок.
     # Поэтому главное меню всегда отправляем сразу с общей inline-клавиатурой.
+    user_id = message.from_user.id if message.from_user else 0
     await message.answer(
         MAIN_MENU_TEXT,
         parse_mode="HTML",
-        reply_markup=main_menu(),
+        reply_markup=main_menu(user_id in manager_chat_ids()),
     )
 
 
@@ -91,9 +93,9 @@ async def start(m: Message):
     await m.answer(
         "🏭 <b>Фабрика Окон</b>\n"
         "<i>Рассчитайте примерную стоимость окна, двери или балконного блока за несколько шагов.</i>\n\n"
-        "Сначала выберите конструкцию и размер — затем бот покажет цену с учётом монтажа .\n\n"
+        "Сначала выберите конструкцию и размер — затем бот покажет ориентировочную цену.\n\n"
         "⚠️ <b>Цена ориентировочная.</b> Точная стоимость определяется после замера.",
-        reply_markup=menu(),
+        reply_markup=main_menu(bool(m.from_user and m.from_user.id in manager_chat_ids())),
     )
 
 
@@ -107,14 +109,14 @@ async def help_cmd(event: Message | CallbackQuery):
         "3. Сумма обновляется на экране (≈)\n"
         "4. «Рассчитать» или «В корзину» для нескольких окон\n"
         "5. Заявка: имя, телефон, адрес, фото проёма\n\n"
-        "Монтаж  уже в итоге. Точную смету даст замерщик.\n"
+        "Монтаж 17% уже в итоге. Точную смету даст замерщик.\n"
         "/cancel — отмена."
     )
     if isinstance(event, CallbackQuery):
         await event.answer()
-        await event.message.edit_text(text, parse_mode="HTML", reply_markup=menu())
+        await event.message.edit_text(text, parse_mode="HTML", reply_markup=main_menu(bool(event.from_user and event.from_user.id in manager_chat_ids())))
     else:
-        await event.answer(text, parse_mode="HTML", reply_markup=menu())
+        await event.answer(text, parse_mode="HTML", reply_markup=main_menu(bool(event.from_user and event.from_user.id in manager_chat_ids())))
 
 
 @router.message(F.text.in_({"❌ Отмена", "Отмена", "❌", "cancel"}))
@@ -133,7 +135,7 @@ async def reply_menu(m: Message, state: FSMContext):
 async def cancel_cmd(m: Message, state: FSMContext):
     # Сбрасываем текущий шаг, но не удаляем сохранённый «Мой расчёт».
     await state.clear()
-    await m.answer("Текущий шаг отменён. Сохранённые расчёты останутся в «Мой расчёт».", reply_markup=menu())
+    await m.answer("Текущий шаг отменён. Сохранённые расчёты останутся в «Мой расчёт».", reply_markup=main_menu(bool(m.from_user and m.from_user.id in manager_chat_ids())))
 
 
 @router.callback_query(F.data == "manager")
@@ -196,14 +198,10 @@ async def _finish_manager_lead(m: Message, state: FSMContext, phone: str):
         )
         return
 
-    try:
-        manager_id = int(os.getenv("MANAGER_CHAT_ID", "0") or 0)
-    except ValueError:
-        manager_id = 0
-        log.exception("Invalid MANAGER_CHAT_ID")
+    manager_ids = manager_chat_ids()
     if created:
-        if not manager_id:
-            log.error("MANAGER_CHAT_ID is not configured")
+        if not manager_ids:
+            log.error("No manager chat IDs are configured")
             await state.clear()
             await m.answer(
                 f"⚠️ Заявка №{request_id} сохранена, но уведомление менеджеру временно не доставлено.",
@@ -221,10 +219,28 @@ async def _finish_manager_lead(m: Message, state: FSMContext, phone: str):
             f"Telegram: {escape(username_text)}\n"
             f"Профиль: <a href=\"{profile}\">Открыть профиль</a>"
         )
-        try:
-            await m.bot.send_message(manager_id, manager_text, parse_mode="HTML")
-        except Exception:
-            log.exception("Failed to notify manager about request %s", request_id)
+        failed = False
+        for manager_id in manager_ids:
+            try:
+                await m.bot.send_message(
+                    manager_id,
+                    manager_text,
+                    parse_mode="HTML",
+                    reply_markup=InlineKeyboardBuilder().button(
+                        text="👁 Открыть заявку", callback_data=f"mgr:view:{request_id}"
+                    ).as_markup(),
+                )
+                await m.bot.send_message(
+                    manager_id,
+                    "📋 Управление заявками:",
+                    reply_markup=InlineKeyboardBuilder().button(
+                        text="📋 Заявки менеджера", callback_data="mgr:menu"
+                    ).as_markup(),
+                )
+            except Exception:
+                failed = True
+                log.exception("Failed to notify manager %s about request %s", manager_id, request_id)
+        if failed:
             await m.answer(
                 "⚠️ Заявка сохранена, но уведомление менеджеру временно не доставлено. "
                 "Менеджер сможет увидеть её в списке заявок.",
@@ -239,7 +255,7 @@ async def _finish_manager_lead(m: Message, state: FSMContext, phone: str):
         parse_mode="HTML",
         reply_markup=ReplyKeyboardRemove(),
     )
-    await m.answer("Что дальше?", reply_markup=menu())
+    await m.answer("Что дальше?", reply_markup=main_menu(bool(m.from_user and m.from_user.id in manager_chat_ids())))
 
 
 @router.message(ManagerStates.PHONE, F.contact)

@@ -142,6 +142,21 @@ class Database:
         with sqlite3.connect(self.path) as c:
             c.execute("UPDATE requests SET status=? WHERE id=?", (status, request_id))
 
+    def manager_requests(self, status: str | None = None, limit: int = 20) -> list[tuple[Any, ...]]:
+        limit = max(1, min(int(limit), 100))
+        with sqlite3.connect(self.path) as c:
+            if status:
+                return c.execute(
+                    "SELECT id, user_id, name, phone, total, status, address, created_at "
+                    "FROM requests WHERE status=? ORDER BY id DESC LIMIT ?",
+                    (status, limit),
+                ).fetchall()
+            return c.execute(
+                "SELECT id, user_id, name, phone, total, status, address, created_at "
+                "FROM requests ORDER BY id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+
     def get_request(self, request_id: int) -> tuple[Any, ...] | None:
         with sqlite3.connect(self.path) as c:
             return c.execute(
