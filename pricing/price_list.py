@@ -310,10 +310,14 @@ def get_balcony_block_parts(profile: str, window_cfg: str = "tilt_turn") -> dict
     """Ориентировочная клиентская база балконного блока без стеклопакета."""
     p = BALCONY_BLOCK_BASE.get(profile) or BALCONY_BLOCK_BASE["70"]
     wkey = "window_fixed" if window_cfg == "fixed" else "window_tilt_turn"
+    # Балконные блоки: отдельная скидка 15% на базовые элементы
+    # блока (дверь, окно и соединительный профиль). Стеклопакет,
+    # фурнитура и прочие дополнительные позиции считаются отдельно.
+    discount = Decimal("0.85")
     return {
-        "door": money(p["door"]),
-        "window": money(p[wkey]),
-        "connector": money(p["connector"]),
+        "door": money(p["door"] * discount),
+        "window": money(p[wkey] * discount),
+        "connector": money(p["connector"] * discount),
     }
 
 

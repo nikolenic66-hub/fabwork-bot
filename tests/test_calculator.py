@@ -98,8 +98,8 @@ def test_balcony_glass_price_adjustments_match_confirmed_totals():
     )
     e24 = calculator.calculate(CalculationConfig(**common, glass="24"))
     e32 = calculator.calculate(CalculationConfig(**common, glass="32"))
-    assert e24.total == Decimal("29869.09")
-    assert e32.total == Decimal("32913.33")
+    assert e24.total == Decimal("28528.98")
+    assert e32.total == Decimal("31684.89")
 
 
 def test_balcony_block_70_near_40k():
