@@ -31,7 +31,12 @@ def base(**kw):
 
 def test_window_price():
     e = calculator.calculate(base(glass="32", opening="tilt_turn", extras={"sash_configuration": "tilt_turn"}))
-    assert e.subtotal == Decimal("11960.00")
+    assert e.subtotal == Decimal("13754.00")
+
+
+def test_window_profile_70_price_increase():
+    e = calculator.calculate(base(profile="70", glass="32", opening="tilt_turn", extras={"sash_configuration": "tilt_turn"}))
+    assert e.subtotal == Decimal("16588.00")
 
 
 def test_installation_exactly_once():
@@ -54,7 +59,7 @@ def test_ebb_is_per_meter():
 
 def test_i_coating():
     e = calculator.calculate(base(glass="32_i", opening="tilt_turn", extras={"sash_configuration": "tilt_turn"}))
-    assert e.subtotal == Decimal("13960.00")
+    assert e.subtotal == Decimal("15754.00")
 
 
 def test_door():
@@ -182,8 +187,8 @@ def test_triple_window_g_po_g():
         extras={"sash_configuration": "fixed_tilt_turn_fixed"},
         glass="32",
     ))
-    assert e.subtotal == Decimal("23120.00")
-    assert e.total == Decimal("27050.40")
+    assert e.subtotal == Decimal("26588.00")
+    assert e.total == Decimal("31107.96")
 
 
 def test_triple_window_po_g_po():
@@ -193,7 +198,7 @@ def test_triple_window_po_g_po():
         extras={"sash_configuration": "tilt_turn_fixed_tilt_turn"},
         glass="32",
     ))
-    assert e.subtotal == Decimal("26840.00")
+    assert e.subtotal == Decimal("30866.00")
 
 
 def test_glass_unit_prices_and_i_surcharge():

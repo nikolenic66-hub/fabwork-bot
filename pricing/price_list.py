@@ -260,7 +260,10 @@ def get_window_price(sash_count: int, configuration: str, profile: str, glass: s
     # Ориентировочная итоговая стоимость окна снижена примерно на 20%.
     # Отдельный стеклопакет по-прежнему имеет собственный фиксированный прайс.
     price = money((construction + area * GLASS_PRICE_PER_M2[base_glass]) * Decimal("0.80"))
-    return money(price)
+    # Актуализация стоимости именно готового окна.
+    # Стеклопакет отдельно в сервисном расчёте/замене не меняется.
+    profile_factor = {"58": Decimal("1.15"), "70": Decimal("1.30")}.get(profile, Decimal("1.00"))
+    return money(price * profile_factor)
 
 
 def get_sill_price(kind: str, depth_mm: int, length_mm: int) -> Decimal:

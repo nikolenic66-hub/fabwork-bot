@@ -25,11 +25,20 @@ def test_window_opening_boundary_matches_ui_scenario():
         extras={"sash_configuration": "tilt_turn"},
     )
     estimate = calculator.calculate(CalculationConfig(**cfg))
-    assert estimate.total == Decimal("6569.55")
+    assert estimate.total == Decimal("7554.98")
     assert estimate.total > 0
     assert validate_size(400, 450, "window", 1, "tilt_turn") is not None
     assert validate_size(450, 450, "window", 1, "tilt_turn") is None
     assert validate_size(550, 450, "window", 1, "tilt_turn") is None
+
+
+def test_standard_triple_window_sizes_pass_opening_sash_limit():
+    text = (ROOT / "handlers" / "calculation.py").read_text(encoding="utf-8")
+    expected = "3: [(1770, 1170), (2070, 1170), (1770, 1320), (2070, 1320), (1770, 1470), (2070, 1470)]"
+    assert expected in text
+    for width, height in ((1770, 1170), (2070, 1170), (1770, 1320), (2070, 1320), (1770, 1470), (2070, 1470)):
+        assert validate_size(width, height, "window", 3, "fixed_tilt_turn_fixed") is None
+        assert validate_size(width, height, "window", 3, "tilt_turn_fixed_tilt_turn") is None
 
 
 def test_html_splitter_keeps_entities_intact():
